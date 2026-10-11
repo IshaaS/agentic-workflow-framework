@@ -52,9 +52,10 @@ Rules:
 - Set "goal" to the name of the single catalog goal the request asks for. If no catalog \
 goal matches, set "goal" to a short snake_case name for what was asked instead. Never pick \
 an unrelated catalog goal.
-- Use only parameter names listed for the chosen goal. Include a parameter whenever the \
-request mentions it, even in different words. Leave a parameter out only when the request \
-does not mention it at all. Never invent values the request does not give.
+- "parameters" must contain every key in the response schema. For each parameter of the \
+chosen goal that the request mentions, even in different words, give its value. Use an \
+empty string for every other key, including parameters of other goals. Never invent values \
+the request does not give.
 - If a parameter lists allowed_values and the request describes one of them in other words \
 (different spacing, capitalization, word form or a phrase with the same meaning), return \
 that allowed value exactly as written in the catalog. For example, if "next_day" is allowed \
@@ -147,8 +148,13 @@ def response_schema(catalog: IntentCatalog) -> dict[str, Any]:
     ``goal`` is a free string and parameter values are free strings, so the
     model can report a request the catalog does not support instead of being
     forced onto a supported value; validation rejects those afterwards.
+
+    Every parameter key is required, in catalog order, and the model writes
+    ``""`` for anything the request does not mention. Structured outputs
+    generate keys in schema order with optional keys last, so optional keys
+    let the model skip past a parameter it had not written yet.
     """
-    names = sorted({name for goal in catalog.goals.values() for name in goal.parameters})
+    names = list(dict.fromkeys(name for goal in catalog.goals.values() for name in goal.parameters))
     return {
         "type": "object",
         "properties": {
@@ -156,7 +162,7 @@ def response_schema(catalog: IntentCatalog) -> dict[str, Any]:
             "parameters": {
                 "type": "object",
                 "properties": {name: {"type": "string"} for name in names},
-                "required": [],
+                "required": names,
                 "additionalProperties": False,
             },
         },
@@ -193,7 +199,14 @@ def _parse(response: Any) -> ResolvedIntent:
         raise IntentProviderError(
             "the model's answer did not have exactly the fields 'goal' and 'parameters'"
         )
-    return ResolvedIntent(goal=data["goal"], parameters=data["parameters"])
+    parameters = data["parameters"]
+    if isinstance(parameters, dict):
+        # The schema makes every key present; "" means the request did not mention it.
+        unset = [k for k, v in parameters.items() if isinstance(v, str) and not v.strip()]
+        if unset:
+            logger.info("Model left parameter(s) %s unset", ", ".join(unset))
+        parameters = {k: v for k, v in parameters.items() if k not in unset}
+    return ResolvedIntent(goal=data["goal"], parameters=parameters)
 
 
 def _import_sdk() -> Any:

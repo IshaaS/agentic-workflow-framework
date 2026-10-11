@@ -11,6 +11,7 @@ is given.
 """
 
 import argparse
+import logging
 import sys
 
 from agentctl_core import (
@@ -51,6 +52,11 @@ def main() -> int:
     parser.add_argument("--show-values", action="store_true", help="also print free-text values")
     args = parser.parse_args()
 
+    # Show the provider's own notes (e.g. which parameters the model left unset).
+    intent_logger = logging.getLogger("agentctl.intent")
+    intent_logger.addHandler(logging.StreamHandler(sys.stdout))
+    intent_logger.setLevel(logging.INFO)
+
     registry = AgentRegistry()
     discover_agents(registry)
     catalog = build_intent_catalog(registry)
@@ -67,7 +73,7 @@ def main() -> int:
         print(f"provider error: {exc}")
         return 1
 
-    print("parsed intent returned by the model:")
+    print("parsed intent returned by the model (empty values removed):")
     describe(intent, catalog, args.show_values)
 
     canonical, changed = canonicalize_intent(intent, catalog)

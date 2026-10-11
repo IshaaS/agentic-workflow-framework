@@ -183,8 +183,9 @@ def test_unsupported_values_are_never_mapped(outfit_catalog, parameter, value, a
 
 
 def test_prompt_asks_for_semantic_mapping_without_substitution():
-    assert "Include a parameter whenever the request mentions it, even in different words" in SYSTEM_PROMPT
-    assert "Leave a parameter out only when the request does not mention it at all" in SYSTEM_PROMPT
+    assert '"parameters" must contain every key in the response schema' in SYSTEM_PROMPT
+    assert "that the request mentions, even in different words, give its value" in SYSTEM_PROMPT
+    assert "Use an empty string for every other key" in SYSTEM_PROMPT
     assert "return that allowed value exactly as written in the catalog" in SYSTEM_PROMPT
     assert "Never substitute a different, merely related, or more general allowed value" in SYSTEM_PROMPT
     assert "return the user's own word" in SYSTEM_PROMPT
@@ -285,3 +286,74 @@ def test_outdoor_walk_request_succeeds_through_adapter(capsys, fake_weather_http
     assert code == 0
     assert set(json.loads(out)) == {"top", "bottom", "outerwear", "footwear"}
     assert "steps: weather.forecast, clothes.advise, shelf.match" in err
+
+
+# Response schema and empty values (second live run) -----------------------------------------
+#
+# Second live run of "What should I wear for an outdoor walk in Chicago?" returned
+# parameters city=<7 chars> and style="" with no activity. The schema then listed
+# activity, city, style (sorted, all optional); structured outputs write keys in schema
+# order, so after starting with city the model could no longer add activity.
+
+
+def test_outfit_schema_requires_every_key_in_catalog_order(outfit_catalog):
+    from agentctl_core.providers.anthropic import response_schema
+
+    parameters = response_schema(outfit_catalog)["properties"]["parameters"]
+
+    assert list(parameters["properties"]) == ["city", "activity", "style"]
+    assert parameters["required"] == ["city", "activity", "style"]
+
+
+@pytest.mark.parametrize(
+    "returned, kept",
+    [
+        ({"city": "Chicago", "activity": "outdoor_walk", "style": ""}, {"city": "Chicago", "activity": "outdoor_walk"}),
+        ({"city": "Chicago", "activity": "outdoor_walk", "style": "   "}, {"city": "Chicago", "activity": "outdoor_walk"}),
+        ({"city": "", "activity": "", "style": ""}, {}),
+        ({"city": "Chicago", "activity": 3}, {"city": "Chicago", "activity": 3}),  # non-strings left for validation
+    ],
+)
+def test_adapter_drops_empty_values(outfit_catalog, returned, kept, caplog):
+    pytest.importorskip("anthropic")
+    with caplog.at_level(logging.INFO, logger="agentctl.intent"):
+        intent = adapter({"goal": "outfit", "parameters": returned}).resolve("request", outfit_catalog)
+
+    assert intent.parameters == kept
+    if len(kept) < len(returned):
+        assert "unset" in caplog.text and "Chicago" not in caplog.text
+
+
+def test_second_live_answer_replayed(capsys, fake_weather_http):
+    """The exact shape of the second live answer now reports the real problem: activity is missing."""
+    pytest.importorskip("anthropic")
+    code = cli.main(["run", "workflow", "--request", REQUEST],
+                    intent_provider=adapter({"goal": "outfit", "parameters": {"city": "Chicago", "style": ""}}))
+    _, err = capsys.readouterr()
+
+    assert code == cli.EXIT_PLANNING
+    assert "missing required input 'activity' for goal 'outfit'" in err
+    assert "must not be empty" not in err
+    assert fake_weather_http == []
+
+
+def test_answer_shape_expected_from_new_schema_succeeds(capsys, fake_weather_http, wardrobe):
+    pytest.importorskip("anthropic")
+    answer = {"goal": "outfit", "parameters": {"city": "Chicago", "activity": "outdoor_walk", "style": ""}}
+
+    code = cli.main(["run", "workflow", "--request", REQUEST], intent_provider=adapter(answer))
+    out, err = capsys.readouterr()
+
+    assert code == 0
+    assert set(json.loads(out)) == {"top", "bottom", "outerwear", "footwear"}
+    assert "Intent validated: goal outfit with parameters activity, city" in err
+
+
+def test_explicit_empty_input_is_still_rejected(capsys, fake_intent, fake_weather_http):
+    provider = fake_intent(ResolvedIntent("outfit", {"city": "Chicago", "activity": "outdoor_walk"}))
+
+    code = cli.main(["run", "workflow", "--request", REQUEST, "--input", "style="], intent_provider=provider)
+    _, err = capsys.readouterr()
+
+    assert code == cli.EXIT_PLANNING
+    assert "parameter 'style' must not be empty (from --input)" in err

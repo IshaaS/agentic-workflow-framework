@@ -446,3 +446,69 @@ The fix has two generic layers. The planner, orchestrator, validator rules and t
 | CI | See the PR checks for the latest commit on `feat/natural-language-intent` |
 
 **Still not verified live:** whether the updated prompt makes Claude return `activity` for this request. Please re-run the request, or `scripts/debug_intent.py`, with your key.
+
+## Addendum 2: second live run and the schema-order fix
+
+### What the debug script showed (run by the author with a real key)
+
+```text
+model: claude-opus-5-5; request: 50 characters
+parsed intent returned by the model:
+  goal: 'outfit'
+  parameters['city']: <str, 7 chars>
+  parameters['style']: ''
+  required parameters not returned: activity
+validation: REJECTED - parameter 'style' must not be empty (from request)
+```
+
+### Diagnosis
+
+The problem is the response **schema**, not the prompt wording.
+- **What the old schema did:** `response_schema()` listed the parameter keys **sorted** (`activity, city, style`) and made them all **optional** (`"required": []`).
+- **What the docs say:** the Anthropic structured-outputs documentation states that "properties in objects maintain their defined ordering from your schema, with one important caveat: required properties appear first, followed by optional properties", and recommends marking properties required when order matters. Its advice is to "make parameters `required` where possible… having Claude provide that default explicitly".
+- **What that meant here:** the model's JSON is generated in schema order. A model that naturally writes `city` first (catalog order) has already passed `activity` and can't add it afterwards. The only key left was `style`, which it filled with `""`.
+
+The improved prompt from Addendum 1 couldn't help, because the constraint is enforced during generation. **This is inferred from the live output and the documentation; it has not been re-verified live.**
+
+### Fix (in `providers/anthropic.py`; nothing else changed)
+
+- **Schema:** every parameter key is **required**, in **catalog order** (for the outfit goal: `city, activity, style`). Values are still free strings, with no enums.
+- **Prompt:** "`parameters` must contain every key in the response schema". The model gives the value for each parameter the request mentions, even in different words, and an **empty string** for every other key.
+- **Parsing:** values that are empty or only whitespace mean "not stated" and are **removed** before validation. Only the names of removed keys are logged (`Model left parameter(s) style unset`).
+  - An unstated optional parameter (`style`) now simply drops out.
+  - An unstated required one produces the accurate error `missing required input 'activity' …` instead of the misleading `style must not be empty`.
+- **Unchanged:**
+  - the validator, which stays exact;
+  - explicit `--input` values: `--input style=` is still rejected;
+  - `canonicalize_intent`, the planner and the orchestrator.
+- **Cost:** with required strings, the docs' limits (24 optional parameters, 16 union-typed parameters per request) no longer apply to this schema.
+- **Debug script:** `scripts/debug_intent.py` now also prints the adapter's "left unset" note.
+
+### Tests (8 more; 469 in total)
+
+**Updated:**
+- `test_response_schema` now expects required keys in catalog order;
+- the prompt-wording test now checks the new rules.
+
+**New:**
+- the outfit schema requires `city, activity, style` in that order;
+- the adapter drops `""` and whitespace-only values and logs only their names (4 cases);
+- your exact second live answer, replayed, now reports `missing required input 'activity'`;
+- the answer shape the new schema should produce succeeds end to end;
+- an explicit empty `--input` is still rejected.
+
+**Mutation checks** (undoing each part of the fix; all caught):
+
+| Deliberate break | Failing tests |
+|---|---:|
+| Keys optional again | 2 |
+| Keys sorted again | 1 |
+| Empty values kept | 5 |
+
+| Environment | Result |
+|---|---|
+| Local, Python 3.11.5 with `anthropic` 1.13.0 | **469 passed** |
+| Clean Python 3.12 environment without the SDK | **436 passed, 33 skipped** (SDK-dependent only) |
+| CI | See the PR checks for this commit |
+
+**Next live check (for the author):** run `python scripts/debug_intent.py "What should I wear for an outdoor walk in Chicago?"`. If `activity` now comes back as `outdoor_walk` and validation passes, follow it with the full `agentctl run workflow --request ...`.

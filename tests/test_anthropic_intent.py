@@ -216,7 +216,11 @@ def test_response_schema(catalog):
     assert schema["properties"]["goal"] == {"type": "string"}
     parameters = schema["properties"]["parameters"]
     assert parameters["properties"] == {"document_path": {"type": "string"}, "tone": {"type": "string"}}
-    assert parameters["required"] == [] and parameters["additionalProperties"] is False
+    # Every key required, in catalog order: structured outputs write keys in schema order with
+    # optional keys last, which let the model skip a parameter it had not reached yet.
+    assert parameters["required"] == ["document_path", "tone"]
+    assert list(parameters["properties"]) == parameters["required"]
+    assert parameters["additionalProperties"] is False
     # No enums: an unsupported value must reach validation instead of being forced onto an allowed one.
     assert "enum" not in json.dumps(schema)
 
