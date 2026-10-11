@@ -59,3 +59,30 @@ import, has the wrong type, or duplicates an agent or capability name raises
 `PluginDiscoveryError` naming the entry point.
 
 Loading an entry point runs the plugin's code. Only install plugins you trust.
+
+## Planning and running workflows
+
+```python
+from agentctl_core import CapabilityPlanner, RuntimeContext, SequentialOrchestrator
+
+planner = CapabilityPlanner(agents)
+inputs = {"text": "hello"}
+
+# From a goal: the output key you want. Producers are resolved backwards.
+plan = planner.plan_for_goal("echo", inputs, external_inputs={"text"})
+
+# Or from a registered named workflow, validated in its declared order.
+plan = planner.plan_from_workflow(workflows.get_workflow("demo_flow"), inputs, external_inputs={"text"})
+
+context = RuntimeContext(session_id="s1", workflow_id="run-1", inputs=inputs)
+SequentialOrchestrator(agents).execute(plan, context)
+context.results   # produced outputs, keyed by output name
+context.events    # workflow_started, agent_started/completed/failed, workflow_completed/failed
+```
+
+`external_inputs` names the keys the caller is expected to supply. A missing
+key in that set raises `MissingInputError`; any other missing key raises
+`MissingCapabilityError`. Planning failures are subclasses of `PlanningError`
+and happen before any agent runs. Execution failures raise
+`WorkflowExecutionError`, which has a `reason`, `capability` and
+`step_index`, with the agent's original exception as `__cause__`.
