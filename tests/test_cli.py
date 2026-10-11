@@ -7,6 +7,7 @@ run the installed ``agentctl`` executable as a subprocess.
 
 import json
 import logging
+import re
 import socket
 import subprocess
 import sys
@@ -183,7 +184,9 @@ def test_unknown_workflow(capsys):
     code, _, err = run(capsys, "run", "workflow", "no_such_flow", *INPUTS)
 
     assert code == cli.EXIT_PLANNING
-    assert "unknown workflow 'no_such_flow' (installed workflows: outfit_advisor)" in err
+    # Other workflow plugins may be installed; require ours in the listed names, not exclusivity.
+    listed = re.search(r"unknown workflow 'no_such_flow' \(installed workflows: ([^)]*)\)", err)
+    assert listed and "outfit_advisor" in listed.group(1).split(", ")
 
 
 def test_input_that_a_step_would_overwrite_is_rejected(capsys, fake_weather_http):

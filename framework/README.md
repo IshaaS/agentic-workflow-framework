@@ -1,7 +1,8 @@
 # agentctl-core
 
-Generic SDK contracts for the Agentic Workflow Framework. It has no runtime
-dependencies and contains no application-specific code.
+Generic SDK, runtime and `agentctl` CLI for the Agentic Workflow Framework.
+It has no required runtime dependencies and contains no application-specific
+code. The optional `[llm]` extra adds the Anthropic SDK for `--request`.
 
 ## Install
 
@@ -15,7 +16,9 @@ python -m pip install -e ./framework
 from agentctl_core import (
     AgentManifest,       # agent metadata: name, version, description, capabilities
     BaseAgent,           # abstract base: implement `manifest` and `run(inputs, context)`
-    Capability,          # name + data keys it `requires` and `produces`
+    Capability,          # name + data keys it `requires` and `produces` (+ optional request metadata)
+    InputSpec,           # optional: describes an input for natural-language requests
+    GoalSpec,            # optional: advertises an output as a natural-language goal
     RuntimeContext,      # per-execution ids, inputs, results, memory, events, logger
     WorkflowDefinition,  # named, ordered list of capability ids
     WorkflowPlan,        # ordered capability ids to execute; source "named" or "generated"
@@ -91,4 +94,6 @@ and happen before any agent runs. Execution failures raise
 
 Installing this distribution provides the `agentctl` command (`agentctl list
 agents`, `agentctl list workflows`, `agentctl run workflow ...`). See the
-repository's root README for usage, exit codes and examples.
+[root README](../README.md) for usage and
+[docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md) for the design, errors and
+exit codes.

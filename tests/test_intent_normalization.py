@@ -21,6 +21,7 @@ from agentctl_core import (
     Capability,
     GoalSpec,
     InputSpec,
+    IntentCatalog,
     IntentValidationError,
     ResolvedIntent,
     build_intent_catalog,
@@ -318,7 +319,9 @@ def test_outdoor_walk_request_succeeds_through_adapter(capsys, fake_weather_http
 def test_outfit_schema_requires_every_key_in_catalog_order(outfit_catalog):
     from agentctl_core.providers.anthropic import response_schema
 
-    parameters = response_schema(outfit_catalog)["properties"]["parameters"]
+    # Only the outfit goal: the schema covers every installed goal, and other plugins may add some.
+    only_outfit = IntentCatalog({"outfit": outfit_catalog.goals["outfit"]})
+    parameters = response_schema(only_outfit)["properties"]["parameters"]
 
     assert list(parameters["properties"]) == ["city", "activity", "style"]
     assert parameters["required"] == ["city", "activity", "style"]
