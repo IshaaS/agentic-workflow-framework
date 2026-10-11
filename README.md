@@ -204,9 +204,15 @@ agentctl run workflow --request "Something for a walk this afternoon" --input ci
 - The answer is checked against that catalog: the goal must be known, every
   parameter must be declared, values must be non-empty strings, and values
   must exactly match any allowed values. Required inputs must be present.
-- Nothing is coerced or remapped. For example, a request for an `office`
-  outfit is rejected (exit 3), because the clothes adviser only supports
-  `outdoor_walk`, `theatre` and `casual`.
+- The model is asked to return the allowed value that means what the request
+  says. For example, "an outdoor walk" should become `outdoor_walk`.
+- If the model's value differs from an allowed value only in capitalization,
+  spacing, hyphens or underscores (such as `Outdoor walk`), the framework
+  uses the allowed value. Meaning is never guessed beyond that, and values
+  passed with `--input` must match exactly.
+- A request for something unsupported is rejected rather than mapped to a
+  related value. For example, an `office` outfit is rejected (exit 3), because
+  the clothes adviser only supports `outdoor_walk`, `theatre` and `casual`.
 - The validated goal and inputs then go through the same planner and
   orchestrator as `--goal`.
 
@@ -296,7 +302,7 @@ would be reported as a missing capability.
 python -m pytest -q
 ```
 
-The suite has 421 tests. It covers the SDK, registries, discovery, each
+The suite has 461 tests. It covers the SDK, registries, discovery, each
 agent, the planner, the orchestrator, the CLI and natural-language requests.
 The end-to-end path is in `tests/test_workflow_integration.py`,
 `tests/test_cli.py`, `tests/test_cli_request.py` and

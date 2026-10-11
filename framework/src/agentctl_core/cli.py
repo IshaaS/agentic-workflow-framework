@@ -28,7 +28,7 @@ from agentctl_core.errors import (
     PlanningError,
     WorkflowExecutionError,
 )
-from agentctl_core.intent import IntentProvider
+from agentctl_core.intent import IntentProvider, canonicalize_intent
 from agentctl_core.intent_catalog import build_intent_catalog
 from agentctl_core.intent_validation import validate_intent
 from agentctl_core.orchestrator import SequentialOrchestrator
@@ -266,6 +266,11 @@ def run_request(
     except IntentProviderError as exc:
         raise CLIError(EXIT_EXECUTION, f"intent provider failed: {exc}") from exc
 
+    # Provider answers may differ from an allowed value only in formatting
+    # ("Outdoor walk"); --input values are not changed and must match exactly.
+    intent, canonicalized = canonicalize_intent(intent, catalog)
+    if canonicalized:
+        logger.info("Matched parameter(s) %s to allowed values", ", ".join(canonicalized))
     try:
         validated = validate_intent(intent, catalog, explicit_inputs)
     except IntentValidationError as exc:

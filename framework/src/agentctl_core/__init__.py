@@ -22,7 +22,7 @@ from agentctl_core.errors import (
     UnknownGoalError,
     WorkflowExecutionError,
 )
-from agentctl_core.intent import IntentProvider, ResolvedIntent
+from agentctl_core.intent import IntentProvider, ResolvedIntent, canonicalize_intent
 from agentctl_core.intent_catalog import IntentCatalog, build_intent_catalog
 from agentctl_core.intent_validation import ValidatedIntent, validate_intent
 from agentctl_core.orchestrator import SequentialOrchestrator
@@ -73,6 +73,7 @@ __all__ = [
     "WorkflowPlan",
     "WorkflowRegistry",
     "build_intent_catalog",
+    "canonicalize_intent",
     "discover_agents",
     "discover_workflows",
     "validate_intent",

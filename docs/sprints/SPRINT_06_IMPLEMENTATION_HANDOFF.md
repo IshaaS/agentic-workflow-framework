@@ -360,3 +360,89 @@ I didn't edit the README disclosure in this sprint; the final polish is schedule
   - The disclosure says PRs "#1–#3 at the time of writing". PR #4 has since been merged, and #5 is open.
   - It should say that the optional `--request` feature itself calls an LLM at run time when the user configures a key.
 - **Still `TODO` for the author:** who wrote the specs and with which tools; what you reviewed and ran yourself; whether you ran `--request` live with your own key, and the result; and time spent.
+
+---
+
+## Addendum: fix for the first live Anthropic test
+
+### What happened
+
+| | |
+|---|---|
+| Live request (run by the author) | "What should I wear for an outdoor walk in Chicago?" |
+| Outcome | Anthropic answered successfully, but validation reported `missing required input 'activity' for goal 'outfit'` |
+
+### Diagnosis
+
+**The model left `activity` out of its answer entirely.** I couldn't make a live call myself (`ANTHROPIC_API_KEY` is not set in the implementation shell), so I worked this out from the code and reproduced it offline:
+
+- **Evidence from the error message:** `validate_intent` checks allowed values *before* it checks for missing inputs. If the model had returned a near-miss such as `"outdoor walk"`, the error would have been `parameter 'activity' must be one of …`. "Missing required input" can only mean `activity` was absent from `parameters`.
+- **Cause in the prompt:** the original system prompt told the model to include "only values the request actually states… never guess", and to use an allowed value "only when it means what the request says". A cautious reading treats "an outdoor walk" as not literally `outdoor_walk` and omits it.
+- **Reproduced offline:** `test_reported_live_failure_reproduced_offline` runs the real Anthropic adapter with a scripted SDK response of `{"goal": "outfit", "parameters": {"city": "Chicago"}}` and gets the same error.
+
+**Debug script for confirming against the real API:** `scripts/debug_intent.py`. It makes one paid call, runs no agents, and prints what the model actually returned:
+- the goal;
+- each parameter's value, but only for parameters that have allowed values; free-text values are shown as their length unless `--show-values` is given;
+- which required parameters are missing;
+- what canonicalization changed;
+- the validation result.
+
+It never prints the API key or the request text.
+
+```bash
+python scripts/debug_intent.py "What should I wear for an outdoor walk in Chicago?"
+```
+
+### Fix
+
+The fix has two generic layers. The planner, orchestrator, validator rules and the clothes adviser are unchanged.
+
+**1. Provider prompt** (`providers/anthropic.py`, still domain-neutral, with a `next_day` example). The model is now told to:
+- include a parameter whenever the request mentions it, even in different words, and omit one only when it isn't mentioned at all;
+- return the allowed value, exactly as written in the catalog, when the request describes it in other words (different spacing, capitalization, word form, or a phrase with the same meaning);
+- never substitute a different, merely related, or more general allowed value. If nothing allowed means the same thing, return the user's own word, so validation rejects it.
+
+**2. `canonicalize_intent(intent, catalog)`** (`intent.py`, exported). This is a deterministic, metadata-driven safety net:
+- **What it matches:** a provider value that equals exactly one allowed value after lowercasing, with runs of spaces, hyphens and underscores treated as one underscore.
+- **Example:** `"Outdoor walk"` becomes `outdoor_walk`.
+- **What it leaves alone:**
+  - values with no formatting match (`office`, `walk`, `hiking`, `business casual`, `overnight`);
+  - ambiguous matches;
+  - free-text parameters;
+  - non-string values;
+  - unknown goals or parameters.
+- **Where it runs:** `run_request` applies it to the **provider's answer only**, then calls the unchanged, exact validator. Explicit `--input` values are never canonicalized: `--input activity="outdoor walk"` is still rejected (exit 3).
+- **Logging:** only the names of changed parameters are logged, e.g. `Matched parameter(s) activity to allowed values`.
+
+### Tests (`tests/test_intent_normalization.py`, 40 new)
+
+**Formatting matches that succeed:**
+- six spellings of `next_day` on a made-up delivery goal;
+- four spellings of `outdoor_walk` on the installed plugins.
+
+**Values never mapped, so validation rejects them:**
+- the delivery goal: `overnight`, `tomorrow`, `next`, `express`, `next day air`;
+- the outfit goal: `office`, `office work`, `walk`, `hiking`, `business casual`, `business_casual`.
+
+**Other checks:**
+- free text untouched; ambiguous metadata untouched; other shapes passed through unchanged; no mutation of the original; the validator itself still exact;
+- the prompt contains the new rules and still no domain words;
+- CLI: a provider's `Outdoor walk` succeeds; `--input activity=outdoor walk` is rejected; `Office` is rejected and no agent runs;
+- through the Anthropic adapter with a scripted SDK client: the reported failure reproduced, and both `outdoor_walk` and `outdoor walk` succeed end to end.
+
+**Mutation checks:**
+
+| Deliberate break | Failing tests |
+|---|---:|
+| Substring matching | 2 |
+| Word-overlap or first-match matching | 7 |
+
+### Results after the fix
+
+| Environment | Result |
+|---|---|
+| Local, Python 3.11.5 with `anthropic` 1.13.0 | **461 passed** |
+| Clean Python 3.12 environment without the SDK | **434 passed, 27 skipped** (SDK-dependent adapter tests only) |
+| CI | See the PR checks for the latest commit on `feat/natural-language-intent` |
+
+**Still not verified live:** whether the updated prompt makes Claude return `activity` for this request. Please re-run the request, or `scripts/debug_intent.py`, with your key.
