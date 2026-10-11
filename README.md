@@ -151,27 +151,6 @@ agentctl run workflow --request "What should I wear to the office in Chicago? I 
 - **Without a key:** `--request` exits with code 5 and prints the structured
   commands, which still work.
 
-## Testing and CI
-
-```bash
-python -m pytest -q
-```
-
-- **Offline:** the tests never touch the network. A pytest fixture blocks
-  sockets, Open-Meteo is replaced at the HTTP transport, the language model is
-  replaced by scripted fakes, and each test that needs the wardrobe gets its
-  own temporary seeded SQLite database.
-- **End-to-end:** integration tests go through real entry-point discovery,
-  planning (both generated and named) and orchestration of all three agents.
-- **Extra:** without the `[llm]` extra, the Anthropic adapter tests
-  are skipped.
-- **CI:** [GitHub Actions](.github/workflows/ci.yml) runs on pushes and pull
-  requests to `main` for Python 3.10, 3.11 and 3.12. It installs all five
-  distributions plus the `[llm]` extra, smoke-tests `agentctl`, runs the
-  integration and CLI tests, then runs the full suite. It needs no secrets.
-
-Details, including manual live checks: [docs/TESTING.md](docs/TESTING.md).
-
 ## Documentation
 
 | Document | Contents |
@@ -190,20 +169,6 @@ Each package also has a short README:
 [clothes](agents/clothes-agent/README.md) and
 [shelf](agents/shelf-agent/README.md).
 
-## Limitations
-
-This is a small prototype:
-- **Execution:** sequential and single-goal, with no retries.
-- **Plugins:** loading a plugin runs its code, so only trusted plugins should
-  be installed.
-- **Clothing advice:** a small fixed rule set.
-- **Wardrobe:** one shared SQLite file of sample items, with no users or
-  per-user inventory.
-- **Natural language:** one-shot resolution of a single goal with string
-  parameters.
-
-See [docs/LIMITATIONS.md](docs/LIMITATIONS.md) for the full list and possible
-enhancements.
 
 ## AI-assisted development
 
