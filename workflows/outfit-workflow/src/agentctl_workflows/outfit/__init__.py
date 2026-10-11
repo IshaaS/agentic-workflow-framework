@@ -1,0 +1,1 @@
+"""Outfit advisor workflow plugin."""

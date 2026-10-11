@@ -1,0 +1,1 @@
+"""Clothes agent plugin."""
