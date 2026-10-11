@@ -1,14 +1,9 @@
 """Sprint 04 in-process integration: discovered plugins -> plan -> sequential execution.
 
 Agents and workflows come from installed entry points. Weather HTTP is
-replaced at the transport (urlopen) so no request leaves the process, and
-the wardrobe is a temporary seeded SQLite database.
+replaced at the transport (urlopen) by the ``fake_weather_http`` fixture in
+conftest.py, and the wardrobe is a temporary seeded SQLite database.
 """
-
-import io
-import json
-from datetime import datetime, timedelta, timezone
-from urllib.parse import urlparse
 
 import pytest
 
@@ -29,51 +24,6 @@ from agentctl_agents.weather import openmeteo
 EXTERNAL_INPUTS = {"city", "activity", "style"}
 INPUTS = {"city": "Dallas", "activity": "outdoor_walk", "style": "casual"}
 EXPECTED_STEPS = ["weather.forecast", "clothes.advise", "shelf.match"]
-
-
-class FakeResponse(io.BytesIO):
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        return False
-
-
-def rainy_forecast():
-    """Identical rainy 22°C rows for every UTC hour from yesterday to tomorrow."""
-    now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
-    hours = [now + timedelta(hours=offset) for offset in range(-24, 25)]
-    return {
-        "timezone": "GMT",
-        "utc_offset_seconds": 0,
-        "hourly": {
-            "time": [h.strftime("%Y-%m-%dT%H:00") for h in hours],
-            "temperature_2m": [22.0] * len(hours),
-            "weather_code": [61] * len(hours),
-            "precipitation_probability": [65] * len(hours),
-            "wind_speed_10m": [15.0] * len(hours),
-        },
-    }
-
-
-@pytest.fixture
-def fake_weather_http(monkeypatch):
-    """Replace Open-Meteo's transport; records requested hosts."""
-    hosts = []
-
-    def fake_urlopen(request, timeout):
-        url = urlparse(request.full_url)
-        hosts.append(url.hostname)
-        if url.hostname == "geocoding-api.open-meteo.com":
-            body = {"results": [{"name": "Dallas", "country": "US", "latitude": 32.8, "longitude": -96.8}]}
-        elif url.hostname == "api.open-meteo.com":
-            body = rainy_forecast()
-        else:
-            raise AssertionError(f"unexpected request to {url.hostname}")
-        return FakeResponse(json.dumps(body).encode())
-
-    monkeypatch.setattr(openmeteo, "urlopen", fake_urlopen)
-    return hosts
 
 
 @pytest.fixture
