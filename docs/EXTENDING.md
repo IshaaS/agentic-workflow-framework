@@ -236,7 +236,8 @@ def test_discovered_plan_runs():
   [tests/conftest.py](../tests/conftest.py) shows a network-blocking fixture,
   an HTTP transport fake and a temporary SQLite database.
 
-**Test environments:** the repository's own suite assumes only the bundled
-plugins are installed. For example, it checks that `outfit` is the only
-natural-language goal. Run it in an environment without extra plugins, and
-test new plugins in their own environment or with their own tests.
+**Test environments:** installing your plugin next to the bundled ones does
+not break the repository's own suite. Its discovery-based tests require the
+bundled plugins to be present but allow others. Tests that need an exact
+registry or catalog build their own. The suite was run with this example
+plugin installed (see [TESTING.md](TESTING.md#recorded-results)).

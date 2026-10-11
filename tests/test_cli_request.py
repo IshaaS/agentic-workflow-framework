@@ -7,6 +7,7 @@ Weather HTTP is faked and the wardrobe is a temporary seeded database.
 
 import json
 import logging
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -156,7 +157,8 @@ def test_request_runs_planner_and_orchestrator(capsys, fake_intent, fake_weather
 
     (request, catalog), = provider.calls
     assert request == REQUEST
-    assert list(catalog.goals) == ["outfit"]
+    # The provider gets the catalog built from discovered plugins; others may add goals.
+    assert catalog.goals["outfit"].steps == ["weather.forecast", "clothes.advise", "shelf.match"]
     assert "Request mode" in err
     assert "Intent validated: goal outfit with parameters activity, city, style" in err
     assert "source generated, steps: weather.forecast, clothes.advise, shelf.match" in err
@@ -199,7 +201,7 @@ def test_request_text_is_not_logged(capsys, fake_intent, fake_weather_http, ward
         (ResolvedIntent("outfit", {"city": "Dallas", "activity": "theatre", "style": "sporty"}),
          "parameter 'style' must be one of: casual, formal, business_casual"),
         (ResolvedIntent("flight_booking", {"city": "Dallas"}),
-         "unsupported natural-language goal 'flight_booking' (available: outfit)"),
+         "unsupported natural-language goal 'flight_booking' (available: "),
         (ResolvedIntent("outfit", {"city": "Dallas", "activity": "theatre", "fashion_score": "9"}),
          "unknown parameter 'fashion_score' for selected goal 'outfit'"),
         (ResolvedIntent("clothing_requirements", {"city": "Dallas", "activity": "theatre"}),
@@ -214,6 +216,16 @@ def test_rejected_intent_runs_nothing(capsys, fake_intent, fake_weather_http, wa
     assert code == cli.EXIT_PLANNING
     assert out == ""
     assert message in err
+    assert fake_weather_http == []
+
+
+def test_unsupported_goal_lists_installed_goals(capsys, fake_intent, fake_weather_http):
+    code, _, err = run(capsys, request_argv(), fake_intent(ResolvedIntent("flight_booking", {"city": "Dallas"})))
+
+    assert code == cli.EXIT_PLANNING
+    # Other plugins may advertise goals too; require ours in the list, not exclusivity.
+    listed = re.search(r"unsupported natural-language goal 'flight_booking' \(available: ([^)]*)\)", err)
+    assert listed and "outfit" in listed.group(1).split(", ")
     assert fake_weather_http == []
 
 

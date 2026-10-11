@@ -57,6 +57,18 @@ real installed plugins:
 Only the weather HTTP transport and, in request mode, the language model are
 replaced.
 
+### Other installed plugins
+
+The suite also passes when other plugins are installed in the same
+environment:
+- **Discovery-based tests:** they assert that the bundled agents, workflow and
+  `outfit` goal are present, not that nothing else is installed. For example,
+  `outfit_advisor` must appear in the listed workflows.
+- **Exact assertions:** tests that need an exact registry, catalog or schema
+  build a controlled one. Examples are the fake document agents, and the
+  response-schema test, which uses a catalog holding only the discovered
+  `outfit` goal.
+
 ### Cross-domain tests
 
 These prove that the framework itself is generic:
@@ -154,6 +166,7 @@ These are the results that have been run and recorded:
 
 | What | Result | Source |
 |---|---|---|
+| Full suite with only the bundled plugins, and again with the [EXTENDING.md](EXTENDING.md) reading-time plugin also installed (Python 3.11, `[llm]` extra) | 538 passed in both environments | Run while fixing test isolation on the documentation branch |
 | CI on `main` after merging Sprint 7 (`ae7c7be`) | Success on Python 3.10, 3.11 and 3.12; 537 passed in each job | [GitHub Actions run 38179268445](https://github.com/IshaaS/agentic-workflow-framework/actions/runs/38179268445) |
 | Fresh clone of `main` (`ae7c7be`), new virtual environment, Python 3.11, installed exactly as in the README without the `[llm]` extra | `503 passed, 34 skipped` (Anthropic adapter tests skipped) | Run during this documentation pass |
 | Same environment: README quick-start and run commands, live Open-Meteo | All succeeded. The office/business_casual run for Chicago (clear, 20.3°C) chose polo, chinos, no outerwear and dress shoes. `activity=hiking` exited 4; a missing `city` exited 3; `--request` without a key exited 5 | Run during this documentation pass |

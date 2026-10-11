@@ -114,9 +114,6 @@ gives no explanation for its choices; a category with no match is `null`.
   no sandboxing, signing or permission model.
 - **Not on PyPI:** plugins depend on `agentctl-core`, which is not published
   on PyPI. Install `./framework` before installing plugins.
-- **One plugin set per environment:** the repository's test suite assumes
-  only the bundled plugins are installed (see
-  [EXTENDING.md](EXTENDING.md#5-test-the-plugin)).
 
 ### Storage, network and environment
 
