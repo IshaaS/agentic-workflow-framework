@@ -170,7 +170,7 @@ def test_outfit_request_through_anthropic_adapter(capsys, fake_weather_http, war
     assert "Suggest an outfit for a casual theatre visit in Dallas" in request["messages"][0]["content"]
 
 
-def test_unsupported_office_request_never_runs_agents(capsys, fake_weather_http, wardrobe):
+def test_office_request_through_anthropic_adapter(capsys, fake_weather_http, wardrobe):
     pytest.importorskip("anthropic")
     provider, _ = anthropic_provider(
         {"goal": "outfit", "parameters": {"city": "Dallas", "activity": "office", "style": "business_casual"}}
@@ -182,7 +182,26 @@ def test_unsupported_office_request_never_runs_agents(capsys, fake_weather_http,
     )
     out, err = capsys.readouterr()
 
+    assert code == 0, err
+    outfit = json.loads(out)
+    assert outfit["top"]["clothing_type"] in {"polo", "dress_shirt"}
+    assert outfit["footwear"]["clothing_type"] == "dress_shoes"
+    assert outfit["outerwear"]["clothing_type"] == "rain_jacket"  # rainy fake forecast; office has a commute
+
+
+def test_unsupported_request_never_runs_agents(capsys, fake_weather_http, wardrobe):
+    pytest.importorskip("anthropic")
+    provider, _ = anthropic_provider(
+        {"goal": "outfit", "parameters": {"city": "Dallas", "activity": "hiking", "style": "sporty"}}
+    )
+
+    code = cli.main(
+        ["run", "workflow", "--request", "What should I wear hiking in Dallas, sporty?"],
+        intent_provider=provider,
+    )
+    out, err = capsys.readouterr()
+
     assert code == cli.EXIT_PLANNING
     assert out == ""
-    assert "parameter 'activity' must be one of: outdoor_walk, theatre, casual; got 'office'" in err
+    assert "parameter 'activity' must be one of: outdoor_walk, theatre, casual, office, walk, walking, work, office_meeting; got 'hiking'" in err
     assert fake_weather_http == []

@@ -161,12 +161,31 @@ def test_outdoor_walk_phrasings(outfit_catalog, value):
 @pytest.mark.parametrize(
     "parameter, value, allowed",
     [
-        ("activity", "office", "outdoor_walk, theatre, casual"),
-        ("activity", "office work", "outdoor_walk, theatre, casual"),
-        ("activity", "walk", "outdoor_walk, theatre, casual"),
-        ("activity", "hiking", "outdoor_walk, theatre, casual"),
-        ("style", "business casual", "casual, formal"),
-        ("style", "business_casual", "casual, formal"),
+        ("activity", "Office", "office"),
+        ("activity", "Office Meeting", "office_meeting"),
+        ("activity", "WALK", "walk"),
+        ("style", "business casual", "business_casual"),
+        ("style", "Business-Casual", "business_casual"),
+    ],
+)
+def test_sprint_7_values_map_unambiguously(outfit_catalog, parameter, value, allowed):
+    # Advertised values are distinct after formatting, so a variant maps to exactly one.
+    parameters = {"city": "Chicago", "activity": "theatre", parameter: value}
+
+    canonical, changed = canonicalize_intent(ResolvedIntent("outfit", parameters), outfit_catalog)
+
+    assert canonical.parameters[parameter] == allowed and changed == [parameter]
+    assert validate_intent(canonical, outfit_catalog).inputs[parameter] == allowed
+
+
+@pytest.mark.parametrize(
+    "parameter, value, allowed",
+    [
+        ("activity", "office work", "outdoor_walk, theatre, casual, office, walk, walking, work, office_meeting"),
+        ("activity", "walks", "outdoor_walk, theatre, casual, office, walk, walking, work, office_meeting"),
+        ("activity", "hiking", "outdoor_walk, theatre, casual, office, walk, walking, work, office_meeting"),
+        ("style", "smart casual", "casual, formal, business_casual"),
+        ("style", "sporty", "casual, formal, business_casual"),
     ],
 )
 def test_unsupported_values_are_never_mapped(outfit_catalog, parameter, value, allowed):
@@ -234,15 +253,15 @@ def test_cli_explicit_input_is_not_canonicalized(capsys, fake_intent, fake_weath
     assert fake_weather_http == []
 
 
-def test_cli_still_rejects_office(capsys, fake_intent, fake_weather_http):
-    provider = fake_intent(ResolvedIntent("outfit", {"city": "Chicago", "activity": "Office"}))
+def test_cli_still_rejects_unsupported_activity(capsys, fake_intent, fake_weather_http):
+    provider = fake_intent(ResolvedIntent("outfit", {"city": "Chicago", "activity": "Hiking"}))
 
-    code = cli.main(["run", "workflow", "--request", "What should I wear to the office in Chicago?"],
+    code = cli.main(["run", "workflow", "--request", "What should I wear for hiking in Chicago?"],
                     intent_provider=provider)
     _, err = capsys.readouterr()
 
     assert code == cli.EXIT_PLANNING
-    assert "parameter 'activity' must be one of: outdoor_walk, theatre, casual; got 'Office'" in err
+    assert "parameter 'activity' must be one of: outdoor_walk, theatre, casual, office, walk, walking, work, office_meeting; got 'Hiking'" in err
     assert fake_weather_http == []
 
 
