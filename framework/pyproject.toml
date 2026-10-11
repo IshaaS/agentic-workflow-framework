@@ -5,13 +5,16 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "agentctl-core"
 dynamic = ["version"]
-description = "Generic SDK contracts for the Agentic Workflow Framework"
+description = "Generic SDK, runtime and CLI for the Agentic Workflow Framework"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest"]
+
+[project.scripts]
+agentctl = "agentctl_core.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

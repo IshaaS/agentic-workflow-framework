@@ -86,3 +86,9 @@ key in that set raises `MissingInputError`; any other missing key raises
 and happen before any agent runs. Execution failures raise
 `WorkflowExecutionError`, which has a `reason`, `capability` and
 `step_index`, with the agent's original exception as `__cause__`.
+
+## Command line
+
+Installing this distribution provides the `agentctl` command (`agentctl list
+agents`, `agentctl list workflows`, `agentctl run workflow ...`). See the
+repository's root README for usage, exit codes and examples.

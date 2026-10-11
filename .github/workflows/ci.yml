@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install framework and plugin distributions
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e './framework[dev]' \
+            -e ./agents/weather-agent \
+            -e ./agents/clothes-agent \
+            -e ./agents/shelf-agent \
+            -e ./workflows/outfit-workflow
+
+      - name: CLI smoke check (plugin discovery)
+        run: |
+          agentctl --help
+          agentctl list agents
+          agentctl list workflows
+
+      - name: End-to-end integration tests (discovery, planner, orchestrator, CLI)
+        run: python -m pytest -v tests/test_workflow_integration.py tests/test_cli.py
+
+      - name: Full test suite
+        run: python -m pytest -q
