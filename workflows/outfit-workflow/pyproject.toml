@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentctl-outfit-workflow"
+version = "0.1.0"
+description = "Outfit advisor workflow definition for agentctl"
+requires-python = ">=3.10"
+dependencies = ["agentctl-core>=0.1.0"]
+
+[project.entry-points."agentctl.workflows"]
+outfit = "agentctl_workflows.outfit.definition:get_workflow"
+
+# agentctl_workflows/ is a PEP 420 namespace shared with other distributions; it has no __init__.py.
+[tool.setuptools.packages.find]
+where = ["src"]
+namespaces = true
