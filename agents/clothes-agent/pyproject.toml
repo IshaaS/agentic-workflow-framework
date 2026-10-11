@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "agentctl-clothes-agent"
 version = "0.1.0"
 description = "Clothes agent plugin for agentctl"
+readme = "README.md"
 requires-python = ">=3.10"
 dependencies = ["agentctl-core>=0.1.0"]
 

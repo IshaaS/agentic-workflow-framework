@@ -165,13 +165,24 @@ def test_discovering_twice_into_one_registry_names_the_entry_point():
         discover_agents(registry)
 
 
-@pytest.mark.parametrize("agent_name", sorted(EXPECTED_AGENTS))
-def test_placeholder_agents_refuse_to_run(agent_registry, agent_name):
-    agent = agent_registry.get_agent(agent_name)
+def test_discovered_agents_are_working_implementations(agent_registry, seeded_db, monkeypatch):
+    # Agents created by discovery (zero-argument constructors) run without
+    # placeholders. The weather agent is left out here because it needs the network.
+    monkeypatch.setenv("SHELF_DB_PATH", str(seeded_db))
     context = RuntimeContext(session_id="s", workflow_id="w", inputs={})
+    weather = {
+        "temperature_c": 25.0,
+        "condition": "clear",
+        "precipitation_probability": 0,
+        "wind_speed_kmh": 5.0,
+    }
 
-    with pytest.raises(NotImplementedError, match="placeholder"):
-        agent.run({}, context)
+    advice = agent_registry.get_agent("clothes_adviser").run(
+        {"weather": weather, "activity": "outdoor_walk"}, context
+    )
+    outfit = agent_registry.get_agent("shelf_manager").run(advice, context)
+
+    assert outfit["outfit"]["top"]["clothing_type"] == "t_shirt"
 
 
 # Namespace packaging --------------------------------------------------------

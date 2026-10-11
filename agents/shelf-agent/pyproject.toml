@@ -6,11 +6,15 @@ build-backend = "setuptools.build_meta"
 name = "agentctl-shelf-agent"
 version = "0.1.0"
 description = "Shelf agent plugin for agentctl"
+readme = "README.md"
 requires-python = ">=3.10"
 dependencies = ["agentctl-core>=0.1.0"]
 
 [project.entry-points."agentctl.agents"]
 shelf = "agentctl_agents.shelf.agent:ShelfAgent"
+
+[project.scripts]
+agentctl-shelf-init = "agentctl_agents.shelf.cli:main"
 
 # agentctl_agents/ is a PEP 420 namespace shared with other distributions; it has no __init__.py.
 [tool.setuptools.packages.find]
