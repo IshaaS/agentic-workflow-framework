@@ -194,10 +194,10 @@ def test_request_text_is_not_logged(capsys, fake_intent, fake_weather_http, ward
     [
         (ResolvedIntent("outfit", {"activity": "theatre"}),
          "missing required input 'city' for goal 'outfit'; supply --input city=VALUE"),
-        (ResolvedIntent("outfit", {"city": "Dallas", "activity": "office"}),
-         "parameter 'activity' must be one of: outdoor_walk, theatre, casual; got 'office'"),
-        (ResolvedIntent("outfit", {"city": "Dallas", "activity": "theatre", "style": "business_casual"}),
-         "parameter 'style' must be one of: casual, formal"),
+        (ResolvedIntent("outfit", {"city": "Dallas", "activity": "hiking"}),
+         "parameter 'activity' must be one of: outdoor_walk, theatre, casual, office, walk, walking, work, office_meeting; got 'hiking'"),
+        (ResolvedIntent("outfit", {"city": "Dallas", "activity": "theatre", "style": "sporty"}),
+         "parameter 'style' must be one of: casual, formal, business_casual"),
         (ResolvedIntent("flight_booking", {"city": "Dallas"}),
          "unsupported natural-language goal 'flight_booking' (available: outfit)"),
         (ResolvedIntent("outfit", {"city": "Dallas", "activity": "theatre", "fashion_score": "9"}),
@@ -221,7 +221,7 @@ def test_invalid_explicit_input_rejected(capsys, fake_intent, fake_weather_http)
     code, _, err = run(capsys, request_argv("--input", "style=sporty"), fake_intent(SUPPORTED))
 
     assert code == cli.EXIT_PLANNING
-    assert "parameter 'style' must be one of: casual, formal; got 'sporty' (from --input)" in err
+    assert "parameter 'style' must be one of: casual, formal, business_casual; got 'sporty' (from --input)" in err
     assert fake_weather_http == []
 
 

@@ -1,10 +1,12 @@
-"""Sprint 03 clothes adviser tests."""
+"""Clothes adviser tests (Sprint 03 rules; Sprint 07 office, business_casual and aliases)."""
 
 import itertools
+import re
 
 import pytest
 
 from agentctl_agents.clothes.agent import (
+    ACCEPTED_ACTIVITIES,
     ACTIVITIES,
     CLOTHING_TYPES,
     STYLES,
@@ -217,13 +219,168 @@ def test_malformed_weather_rejected(context, bad_weather, message):
         ClothesAgent().run({"weather": bad_weather, "activity": "casual"}, context)
 
 
-@pytest.mark.parametrize("activity", [None, "", "hiking", "Theatre"])
+# Case and spacing are normalized (see test_case_and_spacing_are_normalized), so
+# "Theatre" and "FORMAL" are now accepted; near misses are still rejected.
+@pytest.mark.parametrize(
+    "activity", [None, "", "   ", 1, "hiking", "walks", "outdoor", "office party", "the office", "theatre_show"]
+)
 def test_unsupported_activity_rejected(context, activity):
-    with pytest.raises(ValueError, match="'activity' must be one of"):
+    message = f"'activity' must be one of outdoor_walk, theatre, casual, office; got {activity!r}"
+    with pytest.raises(ValueError, match=re.escape(message)):
         ClothesAgent().run({"weather": MILD, "activity": activity}, context)
 
 
-@pytest.mark.parametrize("style", ["", "sporty", "FORMAL", 1])
+@pytest.mark.parametrize("style", ["", "sporty", "smart casual", "business", "casual_formal", 1])
 def test_unsupported_style_rejected(context, style):
-    with pytest.raises(ValueError, match="'style' must be one of"):
+    message = f"'style' must be one of casual, formal, business_casual; got {style!r}"
+    with pytest.raises(ValueError, match=re.escape(message)):
         ClothesAgent().run({"weather": MILD, "activity": "casual", "style": style}, context)
+
+
+# Office and business casual ----------------------------------------------------------
+
+
+def test_office_business_casual_mild():
+    assert advise(MILD, "office", "business_casual") == {
+        "top": ["dress_shirt", "polo"],
+        "bottom": ["pants", "jeans"],
+        "outerwear": ["light_jacket"],
+        "footwear": ["dress_shoes", "walking_shoes"],
+    }
+
+
+def test_office_business_casual_cold_adds_warm_layers():
+    result = advise(COLD, "office", "business_casual")
+
+    assert result["top"][0] == "sweater"
+    assert result["outerwear"][0] == "winter_coat"
+    assert result["bottom"][0] == "pants"
+
+
+def test_office_commute_gets_rain_protection():
+    # Unlike theatre, the office rule assumes a commute, so rain matters.
+    assert advise(RAINY_WARM, "office", "business_casual")["outerwear"] == ["rain_jacket", "light_jacket"]
+    assert advise(RAINY_WARM, "theatre", "casual")["outerwear"] == []
+
+    cold_rain = advise(weather(5.0, "rainy", 80), "office", "business_casual")
+    assert cold_rain["outerwear"] == ["winter_coat", "rain_jacket"]
+    assert cold_rain["footwear"] == ["boots", "dress_shoes"]
+
+
+def test_office_warm_dry_needs_no_outerwear():
+    result = advise(WARM, "office", "business_casual")
+
+    assert result["top"] == ["polo", "dress_shirt"]
+    assert result["outerwear"] == []
+
+
+@pytest.mark.parametrize("style", STYLES)
+def test_office_is_never_dressed_down(style):
+    for w in WEATHER_GRID:
+        result = advise(w, "office", style)
+
+        assert "t_shirt" not in result["top"], (w, style)
+        assert "shorts" not in result["bottom"], (w, style)
+        assert "sneakers" not in result["footwear"], (w, style)
+
+
+def test_formal_office():
+    assert advise(MILD, "office", "formal") == {
+        "top": ["dress_shirt", "long_sleeve_shirt"],
+        "bottom": ["dress_pants", "pants"],
+        "outerwear": ["blazer", "light_jacket"],
+        "footwear": ["dress_shoes"],
+    }
+
+
+def test_office_is_at_least_business_casual():
+    # An office is smart dress by default, so casual style means business casual there.
+    assert advise(MILD, "office") == advise(MILD, "office", "casual") == advise(MILD, "office", "business_casual")
+
+
+def test_activity_changes_business_casual_advice():
+    office = advise(RAINY_WARM, "office", "business_casual")
+    theatre = advise(RAINY_WARM, "theatre", "business_casual")
+    walk = advise(RAINY_WARM, "outdoor_walk", "business_casual")
+
+    assert len({str(office), str(theatre), str(walk)}) == 3
+
+
+def test_business_casual_is_smarter_than_casual_for_a_walk():
+    casual = advise(WARM, "outdoor_walk", "casual")
+    business = advise(WARM, "outdoor_walk", "business_casual")
+
+    assert business["top"] == ["polo", "long_sleeve_shirt"]
+    assert business["bottom"] == ["pants", "jeans"]
+    assert business["footwear"] == casual["footwear"] == ["walking_shoes", "sneakers"]
+
+
+def test_business_casual_theatre_matches_existing_smart_theatre():
+    for w in (COLD, MILD, WARM, RAINY_WARM):
+        assert advise(w, "theatre", "business_casual") == advise(w, "theatre", "casual")
+
+
+# Aliases and normalization ----------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "alias, canonical",
+    [
+        ("walk", "outdoor_walk"),
+        ("walking", "outdoor_walk"),
+        ("outdoor walk", "outdoor_walk"),
+        ("work", "office"),
+        ("office meeting", "office"),
+        ("office_meeting", "office"),
+    ],
+)
+def test_activity_alias_gives_same_advice(context, alias, canonical):
+    for w in (COLD, MILD, WARM, RAINY_WARM, weather(-2.0, "snowy", 90, 35.0)):
+        for style in (None, *STYLES):
+            assert advise(w, alias, style) == advise(w, canonical, style), (alias, w, style)
+
+    agent = ClothesAgent()
+    assert agent.run({"weather": MILD, "activity": alias}, context) == agent.run(
+        {"weather": MILD, "activity": canonical}, context
+    )
+
+
+@pytest.mark.parametrize(
+    "activity, style, canonical",
+    [
+        ("Office", None, ("office", "casual")),
+        ("  office  ", "Business Casual", ("office", "business_casual")),
+        ("Office Meeting", "business  casual", ("office", "business_casual")),
+        ("OUTDOOR_WALK", "FORMAL", ("outdoor_walk", "formal")),
+        ("Outdoor-Walk", " casual ", ("outdoor_walk", "casual")),
+        ("WALK", "business-casual", ("outdoor_walk", "business_casual")),
+        ("Theatre", "Formal", ("theatre", "formal")),
+    ],
+)
+def test_case_and_spacing_are_normalized(activity, style, canonical):
+    assert advise(MILD, activity, style) == advise(MILD, *canonical)
+
+
+# Manifest ---------------------------------------------------------------------------------
+
+
+def test_manifest_inputs_and_advertised_values():
+    (capability,) = ClothesAgent().manifest.capabilities
+    specs = {spec.name: spec for spec in capability.input_specs}
+
+    assert capability.requires == ["weather", "activity"]
+    assert capability.optional_inputs == ["style"]
+    assert specs["activity"].allowed_values == [
+        "outdoor_walk", "theatre", "casual", "office", "walk", "walking", "work", "office_meeting",
+    ]
+    assert specs["activity"].allowed_values == list(ACCEPTED_ACTIVITIES)
+    assert specs["style"].allowed_values == ["casual", "formal", "business_casual"] == list(STYLES)
+
+
+def test_every_advertised_value_is_accepted():
+    (capability,) = ClothesAgent().manifest.capabilities
+    specs = {spec.name: spec for spec in capability.input_specs}
+
+    for activity in specs["activity"].allowed_values:
+        for style in specs["style"].allowed_values:
+            advise(MILD, activity, style)

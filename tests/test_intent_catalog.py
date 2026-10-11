@@ -132,16 +132,17 @@ def test_plugins_without_metadata_give_an_empty_catalog_but_still_plan():
 def test_installed_plugins_catalog():
     registry = AgentRegistry()
     discover_agents(registry)
-    from agentctl_agents.clothes.agent import ACTIVITIES, STYLES
+    from agentctl_agents.clothes.agent import ACCEPTED_ACTIVITIES, STYLES
 
     goal = build_intent_catalog(registry).goals["outfit"]
 
     assert goal.steps == ["weather.forecast", "clothes.advise", "shelf.match"]
     assert goal.required == ["city", "activity"]
-    assert goal.parameters["activity"].allowed_values == list(ACTIVITIES)
+    assert goal.parameters["activity"].allowed_values == list(ACCEPTED_ACTIVITIES)
     assert goal.parameters["style"].required is False
     assert goal.parameters["style"].allowed_values == list(STYLES)
-    assert "office" not in goal.parameters["activity"].allowed_values
+    assert "office" in goal.parameters["activity"].allowed_values
+    assert "business_casual" in goal.parameters["style"].allowed_values
 
 
 # Metadata errors -------------------------------------------------------------------------

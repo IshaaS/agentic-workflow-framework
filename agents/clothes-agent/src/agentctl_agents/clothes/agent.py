@@ -2,8 +2,13 @@
 
 Inputs
     weather   {"temperature_c", "condition", "precipitation_probability", "wind_speed_kmh"}
-    activity  one of ACTIVITIES
+    activity  one of ACTIVITIES, or an alias from ACTIVITY_ALIASES
     style     optional, one of STYLES, default "casual"
+
+Activity and style are matched ignoring case, with runs of spaces, hyphens
+and underscores treated as one underscore, so "Office Meeting" is read as
+office_meeting and "business casual" as business_casual. Anything else is
+rejected; there is no fuzzy matching.
 
 Weather is reduced to a temperature band plus three flags:
     cold   temperature_c < 10
@@ -15,20 +20,41 @@ Weather is reduced to a temperature band plus three flags:
 
 Activity and style set a dress level:
     relaxed  outdoor_walk or casual activity, casual style
-    smart    theatre with casual style, or outdoor_walk/casual with formal style
-    formal   theatre with formal style
+    smart    theatre/office with casual or business_casual style, or
+             outdoor_walk/casual with business_casual or formal style
+    formal   theatre/office with formal style
+
+The office differs from the theatre in two ways: it assumes a commute, so
+rain calls for rain protection and cold rain for boots; and below formal it
+prefers a dress shirt to a long-sleeve shirt, with walking shoes rather than
+sneakers as the alternative to dress shoes.
 
 Each category returns clothing types, best fit first. The rules for each
 category are in the functions below, checked top to bottom.
 """
 
+import re
 from typing import Any
 
 from agentctl_core import AgentManifest, BaseAgent, Capability, InputSpec, RuntimeContext
 
-ACTIVITIES = ("outdoor_walk", "theatre", "casual")
-STYLES = ("casual", "formal")
+ACTIVITIES = ("outdoor_walk", "theatre", "casual", "office")
+STYLES = ("casual", "formal", "business_casual")
 DEFAULT_STYLE = "casual"
+
+# Other names for an activity, in normalized form. "outdoor walk" needs no
+# entry: it normalizes to outdoor_walk.
+ACTIVITY_ALIASES = {
+    "walk": "outdoor_walk",
+    "walking": "outdoor_walk",
+    "work": "office",
+    "office_meeting": "office",
+}
+# Advertised in the manifest so request mode accepts the aliases too.
+ACCEPTED_ACTIVITIES = ACTIVITIES + tuple(ACTIVITY_ALIASES)
+
+# Activities where the dress level is at least smart.
+DRESSY_ACTIVITIES = ("theatre", "office")
 
 # Must match the weather agent's condition vocabulary.
 CONDITIONS = ("clear", "cloudy", "rainy", "snowy", "stormy", "unknown")
@@ -38,8 +64,8 @@ WARM_ABOVE_C = 20.0
 WET_PRECIPITATION_PERCENT = 50
 WINDY_KMH = 30.0
 
-# Activities where rain protection matters. Theatre is indoors.
-OUTDOOR_ACTIVITIES = ("outdoor_walk", "casual")
+# Activities where rain protection matters. Theatre is indoors; the office has a commute.
+RAIN_EXPOSED_ACTIVITIES = ("outdoor_walk", "casual", "office")
 
 # Every clothing type the adviser can recommend; the shelf database uses the same values.
 CLOTHING_TYPES = {
@@ -68,13 +94,18 @@ class ClothesAgent(BaseAgent):
                             name="activity",
                             description=(
                                 "What the person will be doing: outdoor_walk (a walk outside), "
-                                "theatre (an evening at the theatre) or casual (everyday errands)"
+                                "theatre (an evening at the theatre), casual (everyday errands) "
+                                "or office (a day at work). walk and walking mean outdoor_walk; "
+                                "work and office_meeting mean office"
                             ),
-                            allowed_values=list(ACTIVITIES),
+                            allowed_values=list(ACCEPTED_ACTIVITIES),
                         ),
                         InputSpec(
                             name="style",
-                            description="Preferred dress style; casual if not stated",
+                            description=(
+                                "Preferred dress style: casual, business_casual or formal; "
+                                "casual if not stated"
+                            ),
                             allowed_values=list(STYLES),
                         ),
                     ],
@@ -90,11 +121,14 @@ class ClothesAgent(BaseAgent):
 
 def advise(weather: Any, activity: Any, style: Any = None) -> dict[str, list[str]]:
     _validate_weather(weather)
+    given_activity, given_style = activity, style
+    activity = _normalize(activity)
+    activity = ACTIVITY_ALIASES.get(activity, activity)
     if activity not in ACTIVITIES:
-        raise ValueError(f"'activity' must be one of {', '.join(ACTIVITIES)}; got {activity!r}")
-    style = DEFAULT_STYLE if style is None else style
+        raise ValueError(f"'activity' must be one of {', '.join(ACTIVITIES)}; got {given_activity!r}")
+    style = DEFAULT_STYLE if style is None else _normalize(style)
     if style not in STYLES:
-        raise ValueError(f"'style' must be one of {', '.join(STYLES)}; got {style!r}")
+        raise ValueError(f"'style' must be one of {', '.join(STYLES)}; got {given_style!r}")
 
     temperature = weather["temperature_c"]
     band = "cold" if temperature < COLD_BELOW_C else "warm" if temperature > WARM_ABOVE_C else "mild"
@@ -107,26 +141,34 @@ def advise(weather: Any, activity: Any, style: Any = None) -> dict[str, list[str
     level = _dress_level(activity, style)
 
     return {
-        "top": _top(band, level),
+        "top": _top(band, level, activity),
         "bottom": _bottom(band, level, wet),
         "outerwear": _outerwear(band, level, activity, wet, snowy, windy),
         "footwear": _footwear(band, level, activity, wet, snowy),
     }
 
 
+def _normalize(value: Any) -> Any:
+    """Lowercase and turn runs of spaces, hyphens and underscores into one underscore."""
+    if not isinstance(value, str):
+        return value
+    return re.sub(r"[\s_-]+", "_", value.strip().lower())
+
+
 def _dress_level(activity: str, style: str) -> str:
-    if activity == "theatre":
+    if activity in DRESSY_ACTIVITIES:
         return "formal" if style == "formal" else "smart"
-    return "smart" if style == "formal" else "relaxed"
+    return "relaxed" if style == "casual" else "smart"
 
 
-def _top(band: str, level: str) -> list[str]:
+def _top(band: str, level: str, activity: str) -> list[str]:
     if level == "formal":
         return ["dress_shirt", "long_sleeve_shirt"]
+    shirt = "dress_shirt" if activity == "office" else "long_sleeve_shirt"
     if band == "cold":
-        return ["sweater", "long_sleeve_shirt"]
+        return ["sweater", shirt]
     if level == "smart":
-        return ["polo", "long_sleeve_shirt"] if band == "warm" else ["long_sleeve_shirt", "polo"]
+        return ["polo", shirt] if band == "warm" else [shirt, "polo"]
     if band == "mild":
         return ["long_sleeve_shirt", "t_shirt"]
     return ["t_shirt", "polo"]
@@ -145,7 +187,7 @@ def _bottom(band: str, level: str, wet: bool) -> list[str]:
 def _outerwear(
     band: str, level: str, activity: str, wet: bool, snowy: bool, windy: bool
 ) -> list[str]:
-    rain_matters = wet and activity in OUTDOOR_ACTIVITIES
+    rain_matters = wet and activity in RAIN_EXPOSED_ACTIVITIES
     if band == "cold" or snowy:
         fallback = "rain_jacket" if rain_matters else "blazer" if level == "formal" else "light_jacket"
         return ["winter_coat", fallback]
@@ -161,6 +203,10 @@ def _footwear(band: str, level: str, activity: str, wet: bool, snowy: bool) -> l
         if snowy:
             return ["boots", "dress_shoes"]
         return ["dress_shoes"] if level == "formal" else ["dress_shoes", "sneakers"]
+    if activity == "office":
+        if snowy or (band == "cold" and wet):
+            return ["boots", "dress_shoes"]
+        return ["dress_shoes"] if level == "formal" else ["dress_shoes", "walking_shoes"]
     if snowy or (band == "cold" and wet):
         return ["boots", "walking_shoes"]
     if activity == "outdoor_walk":
