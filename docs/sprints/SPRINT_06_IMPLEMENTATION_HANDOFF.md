@@ -1,7 +1,7 @@
 # Sprint 06 Implementation Handoff: Generic Natural-Language Intent
 
 **Scope:** Sprint 6 only (`SPRINT_06_GENERIC_NATURAL_LANGUAGE_INTENT.md`). Sprint 7 clothing work has not been started.
-**Status:** Implemented. Offline tests and CI are green. **A live Anthropic call has not been tested**: no credentials were available.
+**Status:** Implemented. Offline tests and CI are green. **A live Anthropic request succeeded end to end**, run by the author on 2026-10-11 after two fixes found by earlier live runs (Addenda 1–3). Claude Code itself never had credentials.
 
 ## 1. Branch, commits, PR and CI
 
@@ -9,7 +9,8 @@
 |---|---|
 | Branch | `feat/natural-language-intent`, branched from `main` at `cd13296` (after PR #4 was merged) |
 | Implementation commit | `93b65d02bf02264817bb21c1c8bf4fb3b0ddcd0b`: "Add Sprint 6 generic natural-language intent resolution" |
-| Handoff commit | The commit that adds this file, on the same branch |
+| Handoff commit | `0fb7712`: adds this file |
+| Live-run fixes | `9cbf33a` (Addendum 1: prompt and formatting match) and `98941df` (Addendum 2: required keys in catalog order) |
 | PR | [#5](https://github.com/IshaaS/agentic-workflow-framework/pull/5): open, **not merged** |
 | CI on `93b65d0` | [run 38154832085](https://github.com/IshaaS/agentic-workflow-framework/actions/runs/38154832085): **success** on Python 3.10, 3.11 and 3.12. Each job: `anthropic 1.13.0` installed, 88 integration/CLI/intent tests passed, **421 passed with 0 skipped** in the full suite |
 
@@ -157,7 +158,7 @@ Checks run in this order and are domain-neutral. Any failure raises `IntentValid
 | `ANTHROPIC_API_KEY` | Required for `--request`. An empty or whitespace-only value is treated as missing. |
 | `ANTHROPIC_MODEL` | Optional; default `claude-opus-5-5`. The model must support structured outputs and `output_config.effort`. |
 
-The default model ID comes from the bundled Claude API reference I consulted during implementation (model table dated 2026-10-06). **It was not checked against the live API**, because no credentials were available.
+The default model ID comes from the bundled Claude API reference I consulted during implementation (model table dated 2026-10-06). The author's live runs confirmed it responds (Addendum 3).
 
 **The request:**
 - One `messages.create` call: `max_tokens=4096`, `output_config={"effort": "low", "format": {"type": "json_schema", "schema": ...}}`, a generic system prompt, and one user message containing the catalog JSON and the request text in `<catalog>` and `<request>` tags.
@@ -165,17 +166,21 @@ The default model ID comes from the bundled Claude API reference I consulted dur
 - The client is created with `timeout=30.0` and `max_retries=1`.
 
 **Response schema** (`response_schema(catalog)`):
-- `{"goal": string, "parameters": {<every catalog parameter name>: string}}`, all with `additionalProperties: false`, and no parameter required.
+- `{"goal": string, "parameters": {<every catalog parameter name>: string}}`, all with `additionalProperties: false`.
+- Every parameter key is **required, in catalog order**, and `""` means "not stated"; the adapter drops empty values before validation. This replaced the original sorted, all-optional schema (see Addendum 2).
 - There are deliberately **no enums**. A strict enum would force a request like "office" onto an allowed value such as "casual", which the spec forbids. Free strings let validation reject it explicitly instead.
 
 **System prompt:**
 - It contains no domain words (tested).
-- It tells the model to choose a catalog goal or name the unsupported request in snake_case, never pick an unrelated goal, include only values the request states, never substitute a different allowed value, and treat the catalog and request as data rather than instructions.
+- It tells the model to choose a catalog goal or name the unsupported request in snake_case, and never pick an unrelated goal.
+- It tells the model to fill every key: the value when the request mentions it (mapped to the allowed value with the same meaning), and `""` otherwise.
+- It tells the model never to substitute a different allowed value, and to treat the catalog and request as data rather than instructions.
+- The current wording comes from Addenda 1 and 2.
 
 **Refusal fallback:**
 - For `claude-fable-5-1`, `claude-opus-5-5`, `claude-opus-5` and `claude-sonnet-5-5`, the call goes through `client.beta.messages.create(..., betas=["server-side-fallback-2026-07-01"], fallbacks="default")`. This is Anthropic's server-side refusal fallback, enabled by default as the Claude API reference recommends for these models.
 - Other model overrides use plain `client.messages.create`.
-- **Unverified live:** whether this beta works together with structured outputs. If it doesn't, the call fails with exit 4 and `Anthropic API rejected the request: …`.
+- **Verified live:** the author's runs used the default model, and therefore this beta path, together with structured outputs, and they succeeded (Addendum 3).
 
 **Errors:**
 
@@ -317,12 +322,13 @@ agentctl: error: parameter 'activity' must be one of: outdoor_walk, theatre, cas
 |---|---|
 | `--request` without a key (exit 5) | **Tested** |
 | Structured `--goal` run without a key, live Open-Meteo | **Tested** |
-| Real Anthropic call with a key | **Not tested**: no `ANTHROPIC_API_KEY`, no auth token, and no `ant` CLI were available on this machine |
+| Real Anthropic call with a key | **Tested by the author** with their own key (Addendum 3). Claude Code had no credentials. |
 
-**Live checks still needed before relying on `--request`:**
-1. The default model ID responds.
-2. Structured outputs work together with the server-side fallback beta.
-3. The model omits unstated values and reports "office" as `office` rather than mapping it to an allowed value.
+**Live checks** (status after Addendum 3):
+1. The default model ID responds: **confirmed**.
+2. Structured outputs work together with the server-side fallback beta: **confirmed**.
+3. The model leaves unstated values empty: **confirmed** (`style` was left unset).
+4. The model reports an unsupported "office" request as `office` rather than mapping it to an allowed value: **not yet tested live**. It is covered offline.
 
 ## 8. Limitations, deviations and items deferred to Sprint 7
 
@@ -330,12 +336,12 @@ agentctl: error: parameter 'activity' must be one of: outdoor_walk, theatre, cas
 - **Validation happens in the catalog, not the dataclass.** Malformed metadata is rejected when the catalog is built (exit 5 in request mode), not when a `Capability` is constructed. So a plugin with broken natural-language metadata still works for `--goal` and named workflows.
 - **No advertised goals gives exit 3**, with a message pointing to `--goal` and `NAME`.
 - **Unknown or produced keys passed with `--input` are rejected in request mode** (e.g. `--input weather=sunny`). In `--goal` mode, unknown keys are still passed through, as before.
-- **Optional parameters must also be non-empty strings.** The model is told to omit unknown values rather than send `""`.
+- **Empty values from the model mean "not stated".** The adapter drops them before validation (Addendum 2). Empty values passed with explicit `--input` are still rejected.
 - **Two Sprint 1/2 test assertions were adapted** for the additive fields (section 2). This was unavoidable: `asdict` and dataclass equality include the new fields.
 - **Correction to the Sprint 5 handoff:** it reported "251 earlier tests plus 43 CLI tests". The correct split was 253 earlier tests plus 41 CLI tests; the 294 total was right.
 
 **Known limitations:**
-- **Live behaviour untested:** the live provider behaviour and the default model are unverified (section 7).
+- **Live coverage is one request:** only the "outdoor walk" request has been run live; the unsupported-activity case is tested offline only (section 7).
 - **One-shot, single goal:** one goal per request; no chat, no follow-up questions and no retry for malformed output.
 - **String-only parameters:** `value_type` supports only `"string"`.
 - **Unrecognised requests:** a request that matches no goal is reported with whatever snake_case name the model chooses, e.g. `flight_booking`.
@@ -355,11 +361,11 @@ I didn't edit the README disclosure in this sprint; the final polish is schedule
   - test runs: local, clean environment without the SDK, and mutation checks;
   - the manual checks described in section 7;
   - the push, PR #5 and the CI check.
-- **Not done:** no live Anthropic request was made.
+- **Live runs:** Claude Code made no live Anthropic request; it had no credentials. The author ran the live checks with their own key, and their output led to the two fixes in Addenda 1 and 2 and confirmed the result in Addendum 3.
 - **Facts to update:**
   - The disclosure says PRs "#1–#3 at the time of writing". PR #4 has since been merged, and #5 is open.
   - It should say that the optional `--request` feature itself calls an LLM at run time when the user configures a key.
-- **Still `TODO` for the author:** who wrote the specs and with which tools; what you reviewed and ran yourself; whether you ran `--request` live with your own key, and the result; and time spent.
+- **Still `TODO` for the author:** who wrote the specs and with which tools; what you reviewed and ran yourself (the live `--request` runs in Addenda 1–3 are yours); and time spent.
 
 ---
 
@@ -512,3 +518,45 @@ The improved prompt from Addendum 1 couldn't help, because the constraint is enf
 | CI | See the PR checks for this commit |
 
 **Next live check (for the author):** run `python scripts/debug_intent.py "What should I wear for an outdoor walk in Chicago?"`. If `activity` now comes back as `outdoor_walk` and validation passes, follow it with the full `agentctl run workflow --request ...`.
+
+## Addendum 3: live verification (run by the author)
+
+This was run with the author's own key on the PR branch at `98941df`. Timestamps, request IDs and workflow and session IDs are omitted.
+
+**`scripts/debug_intent.py "What should I wear for an outdoor walk in Chicago?"`:**
+
+```text
+model: claude-opus-5-5; request: 50 characters
+Model left parameter(s) style unset
+parsed intent returned by the model (empty values removed):
+  goal: 'outfit'
+  parameters['city']: <str, 7 chars>
+  parameters['activity']: 'outdoor_walk'
+  required parameters not returned: none
+canonicalized parameters: none
+validation: OK - goal 'outfit' with parameters activity, city
+```
+
+**`agentctl run workflow --request "What should I wear for an outdoor walk in Chicago?"`:** exit 0.
+
+```text
+INFO agentctl.cli: Natural-language goals available: outfit
+INFO agentctl.intent: Intent provider answered (model claude-opus-5-5, request id <omitted>)
+INFO agentctl.intent: Model left parameter(s) style unset
+INFO agentctl.cli: Intent validated: goal outfit with parameters activity, city
+INFO agentctl: Workflow <id> started (session <id>, source generated, steps: weather.forecast, clothes.advise, shelf.match)
+INFO agentctl: Weather for Chicago, United States (America/Chicago): clear, 18.2°C
+INFO agentctl: Clothing advice: {'top': ['long_sleeve_shirt', 't_shirt'], 'bottom': ['jeans', 'pants'], 'outerwear': ['light_jacket'], 'footwear': ['walking_shoes', 'sneakers']}
+INFO agentctl: Selected items: {'top': 3, 'bottom': 8, 'outerwear': 12, 'footwear': 17}
+INFO agentctl: Workflow <id> completed in 1419.1 ms
+```
+
+Result: Gray long-sleeve shirt (3), Blue jeans (8), Beige light jacket (12), Brown walking shoes (17).
+
+**What this confirms:**
+- **The model now returns the right values:** it maps "an outdoor walk" to `outdoor_walk` itself, so the formatting match wasn't needed, and it leaves the unstated `style` empty.
+- **The intent goes through the deterministic engine:** the validated intent runs through the unchanged planner (`source generated`) and orchestrator, with real weather and the real wardrobe.
+- **The rules give the expected advice:** 18.2°C falls in the mild band (10–20°C), so the adviser recommends a long-sleeve shirt, jeans, a light jacket and walking shoes.
+- **The API configuration works:** the default model `claude-opus-5-5` responds, and the server-side fallback beta works together with structured outputs.
+
+**Not yet run live:** an unsupported request (e.g. "What should I wear to the office in Chicago?") should exit 3 with `parameter 'activity' must be one of: outdoor_walk, theatre, casual; got 'office'` and run no agents. This case is covered offline.
