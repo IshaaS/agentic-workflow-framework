@@ -26,7 +26,7 @@ optional enhancement on top of that and need an Anthropic API key.
 | Execution | Sequential orchestrator that passes each step's outputs to later steps and checks them against the manifest |
 | Runtime context | Session and workflow IDs, inputs, results, per-run memory, lifecycle events, logging |
 | CLI | `agentctl list agents`, `list workflows`, `run workflow NAME / --goal / --request` |
-| Natural language (optional) | An Anthropic-backed intent resolver, driven by plugin metadata (`InputSpec`, `GoalSpec`) and checked by generic validation |
+| Natural language | An Anthropic-backed intent resolver, driven by plugin metadata (`InputSpec`, `GoalSpec`) and checked by generic validation |
 | Demo data | SQLite wardrobe with 19 seeded sample items |
 | Quality | Offline unit, integration and CLI tests; GitHub Actions on Python 3.10–3.12 |
 
@@ -37,7 +37,7 @@ flowchart TB
     CLI["agentctl CLI"]
     CLI -->|"run workflow NAME"| NW["Named workflow<br/>(WorkflowRegistry)"]
     CLI -->|"run workflow --goal KEY"| PL
-    CLI -->|"run workflow --request TEXT"| IR["Intent resolver (optional)<br/>Anthropic extracts goal + parameters only"]
+    CLI -->|"run workflow --request TEXT"| IR["Intent resolver<br/>Anthropic extracts goal + parameters only"]
     IR --> VAL["Generic validation<br/>against a catalog built from manifests"]
     VAL -->|"goal + inputs"| PL["Capability planner<br/>(deterministic)"]
     NW --> PL
@@ -135,7 +135,7 @@ live run on 2026-10-11 (Chicago, clear, 20.3°C), condensed:
 Recommendations change with the live weather and the wardrobe contents.
 `outerwear` is `null` when no jacket is needed.
 
-### Optional: natural-language requests
+###  Natural-language requests
 
 ```bash
 python -m pip install -e './framework[llm]'      # adds the Anthropic SDK
@@ -163,7 +163,7 @@ python -m pytest -q
   own temporary seeded SQLite database.
 - **End-to-end:** integration tests go through real entry-point discovery,
   planning (both generated and named) and orchestration of all three agents.
-- **Optional extra:** without the `[llm]` extra, the Anthropic adapter tests
+- **Extra:** without the `[llm]` extra, the Anthropic adapter tests
   are skipped.
 - **CI:** [GitHub Actions](.github/workflows/ci.yml) runs on pushes and pull
   requests to `main` for Python 3.10, 3.11 and 3.12. It installs all five
@@ -213,7 +213,6 @@ enhancements.
   implementation, tests, CI configuration and documentation from those
   specifications, and ran the local tests and Git/GitHub operations.
 - **The author:** made the scope and design decisions, ran the manual and live
-  checks, and reviewed and merged each pull request.
+  checks, and reviewed the implementations for each sprints, decided the changes and merged each pull request.
 
-Anthropic is also an optional runtime dependency, used only by `--request`.
 Full disclosure: [docs/AI_USAGE.md](docs/AI_USAGE.md).
