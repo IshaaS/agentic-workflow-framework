@@ -139,7 +139,15 @@ def test_manifest_is_inspectable_with_dataclass_tools():
         "version": "0.1.0",
         "description": "A tiny SDK contract test",
         "capabilities": [
-            {"name": "demo.echo", "requires": ["text"], "produces": ["echo"]}
+            {
+                "name": "demo.echo",
+                "requires": ["text"],
+                "produces": ["echo"],
+                # Optional natural-language metadata added in Sprint 6; empty by default.
+                "optional_inputs": [],
+                "input_specs": [],
+                "goals": [],
+            }
         ],
     }
 

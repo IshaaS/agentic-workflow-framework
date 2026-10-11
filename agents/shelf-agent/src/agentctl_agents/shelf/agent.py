@@ -5,7 +5,7 @@ from contextlib import closing
 from os import PathLike
 from typing import Any
 
-from agentctl_core import AgentManifest, BaseAgent, Capability, RuntimeContext
+from agentctl_core import AgentManifest, BaseAgent, Capability, GoalSpec, RuntimeContext
 
 from agentctl_agents.shelf.db import (
     CATEGORIES,
@@ -40,6 +40,15 @@ class ShelfAgent(BaseAgent):
                     name="shelf.match",
                     requires=["clothing_requirements"],
                     produces=["outfit"],
+                    goals=[
+                        GoalSpec(
+                            output_key="outfit",
+                            description=(
+                                "Choose an outfit from the user's own wardrobe for the current "
+                                "weather in a city and a planned activity"
+                            ),
+                        )
+                    ],
                 )
             ],
         )

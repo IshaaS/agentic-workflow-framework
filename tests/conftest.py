@@ -81,3 +81,23 @@ def fake_weather_http(monkeypatch):
 
     monkeypatch.setattr(openmeteo, "urlopen", fake_urlopen)
     return hosts
+
+
+class FakeIntentProvider:
+    """Stands in for an LLM: returns a scripted intent (or raises) and records each call."""
+
+    def __init__(self, answer):
+        self.answer = answer
+        self.calls = []
+
+    def resolve(self, request, catalog):
+        self.calls.append((request, catalog))
+        if isinstance(self.answer, Exception):
+            raise self.answer
+        return self.answer
+
+
+@pytest.fixture
+def fake_intent():
+    """Factory: ``fake_intent(answer)`` builds a FakeIntentProvider."""
+    return FakeIntentProvider

@@ -29,11 +29,14 @@ jobs:
       - name: Install framework and plugin distributions
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e './framework[dev]' \
+          python -m pip install -e './framework[dev,llm]' \
             -e ./agents/weather-agent \
             -e ./agents/clothes-agent \
             -e ./agents/shelf-agent \
             -e ./workflows/outfit-workflow
+
+      - name: Confirm optional Anthropic SDK is installed for adapter tests (no key is used)
+        run: python -c "import anthropic; print('anthropic', anthropic.__version__)"
 
       - name: CLI smoke check (plugin discovery)
         run: |
@@ -41,8 +44,11 @@ jobs:
           agentctl list agents
           agentctl list workflows
 
-      - name: End-to-end integration tests (discovery, planner, orchestrator, CLI)
-        run: python -m pytest -v tests/test_workflow_integration.py tests/test_cli.py
+      - name: End-to-end integration tests (discovery, planner, orchestrator, CLI, natural-language intent)
+        run: >-
+          python -m pytest -v
+          tests/test_workflow_integration.py tests/test_cli.py
+          tests/test_cli_request.py tests/test_intent_integration.py
 
       - name: Full test suite
         run: python -m pytest -q

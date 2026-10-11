@@ -12,6 +12,8 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest"]
+# Optional: natural-language requests (agentctl run workflow --request).
+llm = ["anthropic>=1,<2"]
 
 [project.scripts]
 agentctl = "agentctl_core.cli:main"
