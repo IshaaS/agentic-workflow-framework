@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from functools import partial
 from typing import Any, Callable
 
-from agentctl_core import AgentManifest, BaseAgent, Capability, RuntimeContext
+from agentctl_core import AgentManifest, BaseAgent, Capability, InputSpec, RuntimeContext
 
 from agentctl_agents.weather.openmeteo import (
     DEFAULT_TIMEOUT_SECONDS,
@@ -43,6 +43,12 @@ class WeatherAgent(BaseAgent):
                     name="weather.forecast",
                     requires=["city"],
                     produces=["weather"],
+                    input_specs=[
+                        InputSpec(
+                            name="city",
+                            description="Name of the city whose current weather matters, e.g. 'Dallas' or 'Paris'",
+                        )
+                    ],
                 )
             ],
         )

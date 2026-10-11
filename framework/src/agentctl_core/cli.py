@@ -1,7 +1,9 @@
 """``agentctl``: list installed plugins and run workflows.
 
 Exit codes: 0 success, 2 usage error, 3 planning error (including an unknown
-workflow name), 4 execution error, 5 plugin discovery error.
+workflow name or a rejected natural-language intent), 4 execution error
+(including an intent provider failing at run time), 5 plugin or intent
+provider configuration error (including a missing ANTHROPIC_API_KEY).
 
 Results are printed to stdout as JSON; logs and errors go to stderr.
 """
@@ -17,7 +19,18 @@ from typing import Any
 
 from agentctl_core.context import RuntimeContext
 from agentctl_core.discovery import PluginDiscoveryError, discover_agents, discover_workflows
-from agentctl_core.errors import MissingInputError, PlanningError, WorkflowExecutionError
+from agentctl_core.errors import (
+    IntentCatalogError,
+    IntentProviderConfigError,
+    IntentProviderError,
+    IntentValidationError,
+    MissingInputError,
+    PlanningError,
+    WorkflowExecutionError,
+)
+from agentctl_core.intent import IntentProvider, canonicalize_intent
+from agentctl_core.intent_catalog import build_intent_catalog
+from agentctl_core.intent_validation import validate_intent
 from agentctl_core.orchestrator import SequentialOrchestrator
 from agentctl_core.planner import CapabilityPlanner
 from agentctl_core.registry import AgentRegistry, WorkflowRegistry
@@ -31,6 +44,8 @@ EXIT_PLUGIN = 5
 
 LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 
+logger = logging.getLogger("agentctl.cli")
+
 
 class CLIError(Exception):
     def __init__(self, exit_code: int, message: str) -> None:
@@ -38,13 +53,18 @@ class CLIError(Exception):
         super().__init__(message)
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, intent_provider: IntentProvider | None = None) -> int:
+    """Run the CLI. ``intent_provider`` replaces the Anthropic provider (used by tests)."""
     parser, run_workflow_parser = build_parser()
     try:
         args = parser.parse_args(argv)
         inputs = parse_inputs(args.input) if args.command == "run" else {}
-        if args.command == "run" and (args.name is None) == (args.goal is None):
-            raise ValueError("give exactly one of a workflow NAME or --goal")
+        if args.command == "run":
+            modes = [args.name is not None, args.goal is not None, args.request is not None]
+            if sum(modes) != 1:
+                raise ValueError("give exactly one of a workflow NAME or --goal or --request")
+            if args.request is not None and not args.request.strip():
+                raise ValueError("--request must not be empty")
     except SystemExit as exc:  # argparse already printed usage or help
         return exc.code if isinstance(exc.code, int) else EXIT_USAGE
     except ValueError as exc:
@@ -57,6 +77,8 @@ def main(argv: list[str] | None = None) -> int:
         try:
             if args.command == "list":
                 return list_agents() if args.what == "agents" else list_workflows()
+            if args.request is not None:
+                return run_request(args.request, inputs, intent_provider)
             return run_workflow(args.name, args.goal, inputs)
         except CLIError as exc:
             print(f"agentctl: error: {exc}", file=sys.stderr)
@@ -79,14 +101,20 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     run_targets = run_parser.add_subparsers(dest="what", required=True, metavar="TARGET")
     run_workflow_parser = run_targets.add_parser(
         "workflow",
-        help="run a named workflow, or a plan generated for --goal",
+        help="run a named workflow, a plan generated for --goal, or a --request",
         description=(
-            "Run a registered workflow by NAME, or generate a plan that produces "
-            "the output key given by --goal. Give exactly one of the two."
+            "Run a registered workflow by NAME, generate a plan that produces the "
+            "output key given by --goal, or describe what you want with --request "
+            "(needs ANTHROPIC_API_KEY and the [llm] extra). Give exactly one of the three."
         ),
     )
     run_workflow_parser.add_argument("name", nargs="?", help="registered workflow name")
     run_workflow_parser.add_argument("--goal", help="output key to produce with a generated plan")
+    run_workflow_parser.add_argument(
+        "--request",
+        metavar="TEXT",
+        help="natural-language request; --input values given with it take precedence",
+    )
     run_workflow_parser.add_argument(
         "--input",
         action="append",
@@ -155,8 +183,14 @@ def list_workflows() -> int:
     return EXIT_OK
 
 
-def run_workflow(name: str | None, goal: str | None, inputs: dict[str, str]) -> int:
-    agents = _discover_agents()
+def run_workflow(
+    name: str | None,
+    goal: str | None,
+    inputs: dict[str, str],
+    agents: AgentRegistry | None = None,
+) -> int:
+    if agents is None:
+        agents = _discover_agents()
     planner = CapabilityPlanner(agents)
     external = external_inputs(agents, inputs)
 
@@ -194,6 +228,59 @@ def run_workflow(name: str | None, goal: str | None, inputs: dict[str, str]) -> 
         raise CLIError(EXIT_EXECUTION, f"workflow result is not JSON-serializable: {exc}") from exc
     print(output)
     return EXIT_OK
+
+
+def run_request(
+    request: str, explicit_inputs: dict[str, str], provider: IntentProvider | None = None
+) -> int:
+    """Resolve ``request`` to a goal and inputs, validate them, then run that goal.
+
+    The provider only picks the goal and parameters; planning and execution
+    are the same as for ``--goal``. Nothing runs if any check fails.
+    """
+    logger.info("Request mode: resolving a natural-language request (%d characters)", len(request))
+    if provider is None:
+        from agentctl_core.providers.anthropic import AnthropicIntentProvider
+
+        try:
+            provider = AnthropicIntentProvider.from_environment()
+        except IntentProviderConfigError as exc:
+            raise CLIError(EXIT_PLUGIN, str(exc)) from exc
+
+    agents = _discover_agents()
+    try:
+        catalog = build_intent_catalog(agents)
+    except IntentCatalogError as exc:
+        raise CLIError(EXIT_PLUGIN, f"cannot build the natural-language goal catalog: {exc}") from exc
+    if not catalog.goals:
+        raise CLIError(
+            EXIT_PLANNING,
+            "no installed agent advertises a natural-language goal; use --goal or a workflow NAME",
+        )
+    logger.info("Natural-language goals available: %s", ", ".join(catalog.goals))
+
+    try:
+        intent = provider.resolve(request, catalog)
+    except IntentProviderConfigError as exc:
+        raise CLIError(EXIT_PLUGIN, str(exc)) from exc
+    except IntentProviderError as exc:
+        raise CLIError(EXIT_EXECUTION, f"intent provider failed: {exc}") from exc
+
+    # Provider answers may differ from an allowed value only in formatting
+    # ("Outdoor walk"); --input values are not changed and must match exactly.
+    intent, canonicalized = canonicalize_intent(intent, catalog)
+    if canonicalized:
+        logger.info("Matched parameter(s) %s to allowed values", ", ".join(canonicalized))
+    try:
+        validated = validate_intent(intent, catalog, explicit_inputs)
+    except IntentValidationError as exc:
+        raise CLIError(EXIT_PLANNING, str(exc)) from exc
+    logger.info(
+        "Intent validated: goal %s with parameters %s",
+        validated.goal,
+        ", ".join(sorted(validated.inputs)) or "none",
+    )
+    return run_workflow(None, validated.goal, validated.inputs, agents)
 
 
 def select_result(

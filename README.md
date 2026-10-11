@@ -112,15 +112,19 @@ agentctl list agents
 agentctl list workflows
 agentctl run workflow NAME   [--input KEY=VALUE ...]
 agentctl run workflow --goal OUTPUT_KEY [--input KEY=VALUE ...]
+agentctl run workflow --request "TEXT" [--input KEY=VALUE ...]
 ```
 
-**Two ways to run:**
+**Three ways to run:**
 - `run workflow NAME` runs a registered workflow in its declared order. The
   order is checked but never rearranged.
 - `run workflow --goal KEY` generates a plan that produces the output key
   `KEY`. Note that `outfit` is an output key, while `outfit_advisor` is the
   name of the registered workflow.
-- Give exactly one of `NAME` or `--goal`.
+- `run workflow --request "TEXT"` (optional, needs an Anthropic API key) lets
+  you describe what you want in plain language. See
+  [Natural-language requests](#natural-language-requests).
+- Give exactly one of `NAME`, `--goal` or `--request`.
 
 **Inputs:**
 - `--input KEY=VALUE` can be repeated. It is split at the first `=`, and
@@ -175,10 +179,74 @@ In the theatre run, the demo dress pants are marked unavailable, so the shelf
 falls back to the adviser's second choice, `pants`. The real output prints
 each item across several lines; it's condensed here.
 
+## Natural-language requests
+
+`--request` is optional. Everything else works without it, without an API key
+and without the Anthropic SDK.
+
+```bash
+python -m pip install -e './framework[llm]'       # adds the Anthropic SDK
+export ANTHROPIC_API_KEY=...                      # from a secure local source; never commit it
+agentctl run workflow --request "Suggest an outfit for a casual theatre visit in Dallas"
+agentctl run workflow --request "Something for a walk this afternoon" --input city=Dallas
+```
+
+**What the language model does, and doesn't do:**
+- It only chooses a **goal** and extracts **parameters**. It never chooses
+  steps or runs agents.
+- The goals it can choose from are the outputs that installed plugins
+  advertise with `GoalSpec` (currently `outfit`).
+- The parameters it can extract are the inputs those goals' capability chains
+  describe with `InputSpec` (`city`, `activity` and optional `style`), with
+  their allowed values.
+
+**What happens next:**
+- The answer is checked against that catalog: the goal must be known, every
+  parameter must be declared, values must be non-empty strings, and values
+  must exactly match any allowed values. Required inputs must be present.
+- The model is asked to return the allowed value that means what the request
+  says. For example, "an outdoor walk" should become `outdoor_walk`.
+- If the model's value differs from an allowed value only in capitalization,
+  spacing, hyphens or underscores (such as `Outdoor walk`), the framework
+  uses the allowed value. Meaning is never guessed beyond that, and values
+  passed with `--input` must match exactly.
+- A request for something unsupported is rejected rather than mapped to a
+  related value. For example, an `office` outfit is rejected (exit 3), because
+  the clothes adviser only supports `outdoor_walk`, `theatre` and `casual`.
+- The validated goal and inputs then go through the same planner and
+  orchestrator as `--goal`.
+
+**Using `--input` with `--request`:**
+- Values passed with `--input` take precedence over values extracted from the
+  request.
+- They are checked against the same rules.
+
+**Configuration:**
+- `ANTHROPIC_API_KEY` is required for request mode.
+- `ANTHROPIC_MODEL` is optional (default `claude-opus-5-5`). Any override must
+  support structured outputs and the `effort` setting.
+- The provider makes one request, with a 30-second timeout and one SDK retry.
+- For current-generation models it enables Anthropic's server-side refusal
+  fallback (`fallbacks="default"`).
+- Request text and parameter values are not logged; only the goal and the
+  parameter names are.
+
+**Errors:**
+- A missing key or SDK, or rejected credentials, exits with 5. The message
+  shows the structured commands, which still work.
+- A provider timeout, rate limit or bad response exits with 4.
+
+**For plugin authors:** describe inputs with
+`Capability(..., optional_inputs=[...], input_specs=[InputSpec(...)])` and
+advertise a goal with `goals=[GoalSpec(output_key, description)]`. All of these
+fields are optional, and plugins without them still work with `--goal` and
+named workflows.
+
 ## How plans are chosen
 
-No LLM is involved. Planning is deterministic and uses only the manifests of
-the installed agents.
+Planning never uses an LLM. It is deterministic and uses only the manifests
+of the installed agents. (`--request` uses a model only to pick the goal and
+parameters, before planning starts.)
 
 **From a goal** (`--goal KEY`), the planner works backwards:
 - It finds the single capability that produces `KEY`.
@@ -224,9 +292,9 @@ would be reported as a missing capability.
 |---:|---|
 | 0 | Success |
 | 2 | Invalid command line or `--input` |
-| 3 | Planning failed (missing input, unknown goal or workflow, invalid plan); nothing ran |
-| 4 | A step failed (e.g. weather API error or missing wardrobe); names the failed step |
-| 5 | A plugin could not be loaded |
+| 3 | Planning failed (missing input, unknown goal or workflow, invalid plan, rejected `--request` intent); nothing ran |
+| 4 | A step failed (e.g. weather API error or missing wardrobe), or the intent provider failed at run time |
+| 5 | A plugin could not be loaded, plugin goal metadata is invalid, or `--request` is not configured (no `ANTHROPIC_API_KEY`, no SDK, rejected key) |
 
 ## Testing
 
@@ -234,16 +302,21 @@ would be reported as a missing capability.
 python -m pytest -q
 ```
 
-The suite has 294 tests. It covers the SDK, registries, discovery, each
-agent, the planner, the orchestrator and the CLI. The end-to-end path is in
-`tests/test_workflow_integration.py` and `tests/test_cli.py`:
+The suite has 461 tests. It covers the SDK, registries, discovery, each
+agent, the planner, the orchestrator, the CLI and natural-language requests.
+The end-to-end path is in `tests/test_workflow_integration.py`,
+`tests/test_cli.py`, `tests/test_cli_request.py` and
+`tests/test_intent_integration.py`:
 - Plugins are discovered from installed entry points.
 - A plan is generated or loaded, then run by the orchestrator.
 - The output must contain real items from a temporary seeded SQLite
   database.
 - Weather HTTP is replaced at the transport level by a fake.
+- Language-model answers come from fakes; no API key is used.
 - A test fixture blocks all network access, so a test that tries to reach the
   internet fails.
+- Without the `[llm]` extra, the Anthropic adapter tests are skipped and
+  everything else passes. CI installs the extra so they run.
 
 **CI:** `.github/workflows/ci.yml` runs on pushes and pull requests to `main`
 for Python 3.10, 3.11 and 3.12. It installs all five distributions, smoke-tests
@@ -258,6 +331,9 @@ runs the full suite. It needs no secrets or services.
 - One goal per run.
 - The planner is deterministic dependency resolution, not natural-language
   understanding or optimisation.
+- `--request` supports one goal per request. It only accepts the activities
+  and styles the plugins declare, and it is one-shot: no chat or follow-up
+  questions.
 - CLI inputs are strings and are passed to agents as-is.
 
 **Execution:**

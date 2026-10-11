@@ -122,3 +122,35 @@ class WorkflowExecutionError(Exception):
         self.agent = agent
         self.keys = keys or []
         super().__init__(message)
+
+
+class IntentCatalogError(Exception):
+    """Installed plugins advertise natural-language metadata that cannot be used.
+
+    ``capability`` and ``goal`` name the offending metadata when known.
+    """
+
+    def __init__(self, message: str, *, capability: str | None = None, goal: str | None = None) -> None:
+        self.capability = capability
+        self.goal = goal
+        super().__init__(message)
+
+
+class IntentValidationError(PlanningError):
+    """A resolved natural-language intent was rejected before any agent ran.
+
+    ``goal`` and ``parameter`` name what was rejected when known.
+    """
+
+    def __init__(self, message: str, *, goal: str | None = None, parameter: str | None = None) -> None:
+        self.goal = goal
+        self.parameter = parameter
+        super().__init__(message)
+
+
+class IntentProviderError(Exception):
+    """The intent provider failed at run time (network, timeout, rate limit, bad response)."""
+
+
+class IntentProviderConfigError(IntentProviderError):
+    """The intent provider is not usable as configured (missing key or SDK, rejected credentials)."""

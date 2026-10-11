@@ -24,7 +24,7 @@ category are in the functions below, checked top to bottom.
 
 from typing import Any
 
-from agentctl_core import AgentManifest, BaseAgent, Capability, RuntimeContext
+from agentctl_core import AgentManifest, BaseAgent, Capability, InputSpec, RuntimeContext
 
 ACTIVITIES = ("outdoor_walk", "theatre", "casual")
 STYLES = ("casual", "formal")
@@ -62,6 +62,22 @@ class ClothesAgent(BaseAgent):
                     name="clothes.advise",
                     requires=["weather", "activity"],
                     produces=["clothing_requirements"],
+                    optional_inputs=["style"],
+                    input_specs=[
+                        InputSpec(
+                            name="activity",
+                            description=(
+                                "What the person will be doing: outdoor_walk (a walk outside), "
+                                "theatre (an evening at the theatre) or casual (everyday errands)"
+                            ),
+                            allowed_values=list(ACTIVITIES),
+                        ),
+                        InputSpec(
+                            name="style",
+                            description="Preferred dress style; casual if not stated",
+                            allowed_values=list(STYLES),
+                        ),
+                    ],
                 )
             ],
         )

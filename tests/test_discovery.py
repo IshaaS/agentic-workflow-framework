@@ -105,7 +105,11 @@ def test_discovered_manifest_contracts(agent_registry, agent_name):
     assert isinstance(agent.manifest, AgentManifest)
     assert agent.manifest.version == "0.1.0"
     assert agent.manifest.description
-    assert agent.manifest.capabilities == [EXPECTED_AGENTS[agent_name]]
+    # Compare the planning contract; natural-language metadata is tested in test_intent_catalog.py.
+    expected = EXPECTED_AGENTS[agent_name]
+    assert [(c.name, c.requires, c.produces) for c in agent.manifest.capabilities] == [
+        (expected.name, expected.requires, expected.produces)
+    ]
 
 
 @pytest.mark.parametrize(
