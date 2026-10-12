@@ -1,5 +1,7 @@
 # Agentic Workflow Framework
 
+**Watch the demo here: https://drive.google.com/file/d/1zUO6YBq5s9pSjV9g_6AzLZU3HybFUnQp/view?usp=sharing**
+
 A small Python framework for running workflows built from independently
 installed agents. The core (`agentctl-core`) is generic: it discovers agent and
 workflow plugins through Python entry points, plans which agents to run from
